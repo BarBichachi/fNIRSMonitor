@@ -43,6 +43,7 @@ class PlotWidget(QWidget):
             plot_widget.setTitle(name)
 
             # --- Set Fixed Plot Range ---
+            plot_widget.enableAutoRange(x=False, y=False)
             plot_widget.setXRange(-10, 0)
             plot_widget.getViewBox().setMouseEnabled(x=False)  # Disable horizontal panning/zooming
 
@@ -61,37 +62,47 @@ class PlotWidget(QWidget):
         if self.first_plot:
             self.first_plot.getViewBox().disableAutoRange()
 
-    def update_data(self, processed_data):
-        # Adds a new data sample to the plot and scrolls the view.
+    def set_time_window(self, seconds: int, sample_rate: int):
+        """Resize buffers/x-axis to always represent the last <seconds> at the given sample_rate."""
+        new_len = max(1, int(seconds * sample_rate))
+        new_x = np.linspace(-seconds, 0, new_len, endpoint=False)
 
-        # --- Shift Data Buffers ---
-        # Roll the arrays one position to the left. The oldest data point is discarded.
+        # Preserve history tail
+        old_O2 = self.data['O2Hb']
+        old_HH = self.data['HHb']
+        n_ch = old_O2.shape[0]
+        keep = min(old_O2.shape[1], new_len)
+
+        self.data['O2Hb'] = np.zeros((n_ch, new_len), dtype=float)
+        self.data['HHb'] = np.zeros((n_ch, new_len), dtype=float)
+        if keep:
+            self.data['O2Hb'][:, -keep:] = old_O2[:, -keep:]
+            self.data['HHb'][:, -keep:] = old_HH[:, -keep:]
+
+        self.buffer_size = new_len
+        self.x_axis = new_x
+
+        if self.first_plot:
+            self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1], padding=0)
+
+    def push_sample(self, processed_data):
+        """Append one new processed sample at the TRUE data cadence."""
         self.data['O2Hb'] = np.roll(self.data['O2Hb'], -1, axis=1)
         self.data['HHb'] = np.roll(self.data['HHb'], -1, axis=1)
-
-        # --- Add New Data ---
-        # Place the new data sample at the end of the arrays.
         self.data['O2Hb'][:, -1] = processed_data['O2Hb']
         self.data['HHb'][:, -1] = processed_data['HHb']
 
-        # --- Dynamically set Y-Range ---
-        # Find the min and max across all channels for both O2Hb and HHb in the buffer.
+    def repaint_curves(self):
+        """Only recompute ranges and redraw curves (UI timer)."""
         global_min = min(np.min(self.data['O2Hb']), np.min(self.data['HHb']))
         global_max = max(np.max(self.data['O2Hb']), np.max(self.data['HHb']))
-
-        # Add a 10% padding to the range for a tighter zoom.
         data_range = global_max - global_min
-        padding = data_range * 0.1
-
-        # Handle the edge case where the data is flat to prevent a zero-height plot.
-        if padding < 1e-5:  # A very small number
-            padding = 0.001  # Set a minimal default padding
+        padding = max(data_range * 0.1, 0.001)
 
         if self.first_plot:
             self.first_plot.setYRange(global_min - padding, global_max + padding)
+            self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1], padding=0)
 
-        # --- Update Plot Curves ---
-        # Redraw all curves with the updated data buffers and the fixed x-axis.
         for i, name in enumerate(config.CHANNEL_NAMES):
             self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=self.data['O2Hb'][i, :])
             self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=self.data['HHb'][i, :])

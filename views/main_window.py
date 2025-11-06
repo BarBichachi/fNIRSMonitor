@@ -1,5 +1,5 @@
 import numpy as np
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QApplication
 import config
 
@@ -78,7 +78,7 @@ class MainWindow(QMainWindow):
     def _init_plot_timer(self):
         # A dedicated timer for updating the plot at a smooth visual frame rate.
         self.plot_update_timer = QTimer(self)
-        self.plot_update_timer.setInterval(40)  # 25 FPS
+        self.plot_update_timer.setInterval(10)
         self.plot_update_timer.timeout.connect(self._update_plot)
 
     def _connect_signals(self):
@@ -169,6 +169,7 @@ class MainWindow(QMainWindow):
             self.connection_bar.connect_button.setText("Disconnect")
             self.connection_bar.status_indicator.setStyleSheet("color: #388e3c;")
             self.connection_bar.refresh_button.setEnabled(False)
+            self.plot_widget.set_time_window(10, int(config.SAMPLE_RATE))
             self.plot_update_timer.start()
             self.alert_sidebar.calibrate_button.setEnabled(True)
             self.controller.start_calibration()
@@ -181,15 +182,16 @@ class MainWindow(QMainWindow):
             self._handle_refresh_clicked()
 
     def _on_processed_data(self, processed_data):
-        # Handles new data by storing it and updating the quality indicators.
-        self.latest_data = processed_data
+        # push into ring buffer at actual data cadence
+        self.plot_widget.push_sample(processed_data)
+
+        # keep your quality UI update
         if 'quality' in processed_data:
             self.control_sidebar.update_quality_indicators(processed_data['quality'])
 
     def _update_plot(self):
         # Called by the timer to update the plot with the latest data.
-        if self.latest_data:
-            self.plot_widget.update_data(self.latest_data)
+        self.plot_widget.repaint_curves()
 
     def closeEvent(self, event):
         # Ensures the controller cleans up its resources when the app closes.

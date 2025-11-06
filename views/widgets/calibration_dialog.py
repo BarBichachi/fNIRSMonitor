@@ -43,10 +43,10 @@ class CalibrationDialog(QDialog):
         event.accept()
 
     def show_message(self, title, message, detailed_text=None):
-        # Shows a message box, with an optional expandable details section.
+        # Shows a message box, with details section.
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle(title)
         msg_box.setText(message)
         if detailed_text:
-            msg_box.setDetailedText(detailed_text)
+            msg_box.setInformativeText(detailed_text)
         msg_box.exec()
