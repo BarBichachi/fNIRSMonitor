@@ -1,6 +1,7 @@
 from PySide6.QtCore import QObject, QThread, Signal, QTimer
 
 import config
+import numpy as np
 from logic.lsl_client import LSLClient
 from logic.data_processor import DataProcessor
 from utils.sound_player import SoundPlayer
@@ -119,7 +120,13 @@ class AppController(QObject):
         if self.is_calibrating:
             self.data_processor.add_calibration_sample(data['raw'])
         else:
-            processed = self.data_processor.process_sample_with_baseline(data['raw'], self.alert_rules)
+            raw_sample = np.asarray(data['raw'], dtype=float)
+
+            # Handle possible trigger/timestamp channel
+            if raw_sample.size == 33:
+                raw_sample = raw_sample[:32]
+
+            processed = self.data_processor.process_sample_with_baseline(raw_sample, self.alert_rules)
             if processed:
                 processed['timestamp'] = data['timestamp']
                 self.processed_data_ready.emit(processed)

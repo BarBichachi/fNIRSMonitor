@@ -20,7 +20,7 @@ ALERT_SOUND_PATH = "assets/cognitive_load_detected.wav"
 NOMINAL_SOUND_PATH = "assets/system_nominal.wav"
 
 # --- Hardware & Channel Configuration (OctaMon M) ---
-STREAM_TYPE = "fNIRS"
+STREAM_TYPE = "NIRS"
 # 8 physical channels total: 4 left (L1,..,L4), 4 right (R1,..,R4)
 CHANNEL_NAMES = [f"{prefix}{i}" for prefix in ("L", "R") for i in range(1, 5)]
 EXPECTED_PHYSICAL_CHANNELS = 8

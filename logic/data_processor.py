@@ -38,12 +38,19 @@ class DataProcessor:
         return True
 
     def _assert_raw_or_raise(self, vec: np.ndarray, ctx: str):
+    # Handle OxySoft extra trigger channel (33rd value)
+        if vec.size == 33:
+            vec = vec[:32]
+
         if not self._looks_like_raw(vec):
             raise ValueError(
                 f"Raw-only mode: rejecting non-raw sample in {ctx}. "
                 f"Expected positive intensities with length in {sorted(config.RAW_ALLOWED_LENGTHS)}, "
                 f"got len={vec.size} (min={vec.min():.6g})."
             )
+
+        # Return the trimmed/validated vector for downstream use
+        return vec
 
     # --- Ensure post-mapping buffers match width (16) ---
     def _ensure_buffers(self, mapped_len: int):
@@ -137,7 +144,7 @@ class DataProcessor:
 
     def add_calibration_sample(self, raw_sample):
         raw = np.asarray(raw_sample, dtype=float)
-        self._assert_raw_or_raise(raw, "add_calibration_sample")
+        raw = self._assert_raw_or_raise(raw, "add_calibration_sample")
         self.calibration_buffer.append(raw)
 
     def finish_calibration(self):
@@ -194,7 +201,7 @@ class DataProcessor:
 
     def process_sample_with_baseline(self, raw_sample, alert_rules):
         raw = np.asarray(raw_sample, dtype=float)
-        self._assert_raw_or_raise(raw, "process_sample_with_baseline")
+        raw = self._assert_raw_or_raise(raw, "process_sample_with_baseline")
 
         if self.pair_indices is None:
             return None  # not calibrated yet
