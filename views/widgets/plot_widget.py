@@ -96,7 +96,7 @@ class PlotWidget(QWidget):
         """Only recompute ranges and redraw curves (UI timer)."""
         global_min = min(np.min(self.data['O2Hb']), np.min(self.data['HHb']))
         global_max = max(np.max(self.data['O2Hb']), np.max(self.data['HHb']))
-        data_range = global_max - global_min
+        data_range = (global_max - global_min)
         padding = max(data_range * 0.1, 0.001)
 
         if self.first_plot:

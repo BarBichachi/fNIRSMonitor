@@ -1,6 +1,6 @@
 import numpy as np
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication, QInputDialog
 import config
 
 # Import UI components and the AppController
@@ -93,7 +93,6 @@ class MainWindow(QMainWindow):
         self.controller.alert_state_changed.connect(self.alert_sidebar.update_state_indicator)
 
         # Connect Calibration Signals
-        self.alert_sidebar.calibrate_button.clicked.connect(self.controller.start_calibration)
         self.calibration_dialog.stop_requested.connect(self.controller.abort_calibration)
         self.controller.calibration_started.connect(self.calibration_dialog.exec)
         self.controller.calibration_progress.connect(self.calibration_dialog.update_countdown)
@@ -111,25 +110,29 @@ class MainWindow(QMainWindow):
     def _set_analysis_controls_enabled(self, enabled):
         # Enables or disables all controls that require a calibrated connection.
         self.connection_bar.record_button.setEnabled(enabled)
-        self.alert_sidebar.calibrate_button.setEnabled(enabled)
         self.alert_sidebar.rules_group.setEnabled(enabled)
         self.marker_bar.setEnabled(enabled)
 
     def _on_calibration_finished(self, success, baseline_data):
         # Handles the result of the calibration process.
         self.calibration_dialog.close()
-        self._set_analysis_controls_enabled(success)
 
-        if success and baseline_data is not None:
-            # --- Format the baseline data for display ---
+        if not success:
+            # User aborted or calibration failed -> hard reset by disconnecting
+            self.controller.disconnect_from_stream()
+            return
+
+        self._set_analysis_controls_enabled(True)
+
+        if baseline_data is not None:
+            # Format the baseline data for display
             detailed_text = "Average Raw Intensity Baseline:\n"
             for i in range(len(config.CHANNEL_NAMES)):
                 # Average the two wavelengths for each physical channel
                 avg_intensity = np.mean(baseline_data[i * 2: i * 2 + 2])
                 detailed_text += f"  {config.CHANNEL_NAMES[i]}: {avg_intensity:.2f}\n"
 
-            self.calibration_dialog.show_message("Success", "Baseline calibration completed successfully.",
-                                                 detailed_text)
+            self.calibration_dialog.show_message("Success", "Baseline calibration completed successfully.", detailed_text)
         else:
             self.calibration_dialog.show_message("Failed", "Baseline calibration failed or was aborted.")
 
@@ -169,10 +172,19 @@ class MainWindow(QMainWindow):
             self.connection_bar.connect_button.setText("Disconnect")
             self.connection_bar.status_indicator.setStyleSheet("color: #388e3c;")
             self.connection_bar.refresh_button.setEnabled(False)
-            self.plot_widget.set_time_window(10, int(config.SAMPLE_RATE))
-            self.plot_update_timer.start()
-            self.alert_sidebar.calibrate_button.setEnabled(True)
+
+            # Ask for sample rate before calibration
+            if not self._ask_for_sample_rate():
+                # User cancelled -> disconnect and bail out
+                self.controller.disconnect_from_stream()
+                return
+
+            # While calibration is running, disable analysis controls
+            self._set_analysis_controls_enabled(False)
+
+            # Start calibration (async)
             self.controller.start_calibration()
+
         else:
             self._set_analysis_controls_enabled(False)
             self.connection_bar.connect_button.setText("Connect")
@@ -192,6 +204,28 @@ class MainWindow(QMainWindow):
     def _update_plot(self):
         # Called by the timer to update the plot with the latest data.
         self.plot_widget.repaint_curves()
+
+    def _ask_for_sample_rate(self) -> bool:
+        # Ask the user to choose the sampling rate (Hz) before calibration
+        items = ["10 Hz", "25 Hz", "50 Hz", "100 Hz"]
+
+        item, ok = QInputDialog.getItem(
+            self,
+            "Select sampling rate",
+            "Please choose the sampling rate (Hz) for this session:",
+            items,
+            0,
+            False
+        )
+
+        if not ok:
+            return False  # user cancelled
+
+        hz = int(item.split()[0])
+        config.SAMPLE_RATE = hz
+        self.control_sidebar.set_sample_rate(hz)
+        self.plot_widget.set_time_window(10, hz)
+        return True
 
     def closeEvent(self, event):
         # Ensures the controller cleans up its resources when the app closes.

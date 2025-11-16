@@ -1,7 +1,6 @@
 # views/widgets/alert_sidebar.py
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QPushButton, QLabel, QDoubleSpinBox, QSpinBox, \
-    QHBoxLayout, QGridLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QPushButton, QLabel, QDoubleSpinBox, QSpinBox, QGridLayout
 from PySide6.QtCore import Qt
 
 
@@ -16,10 +15,6 @@ class AlertSidebar(QWidget):
         # Initializes the UI elements for this sidebar.
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 10, 5, 10)
-
-        # --- Calibration Group ---
-        self.calibrate_button = QPushButton("Recalibrate Baseline")
-        layout.addWidget(self.calibrate_button)
 
         # --- Alert Rules Group ---
         self.rules_group = QGroupBox("Alert Rules")
@@ -50,7 +45,7 @@ class AlertSidebar(QWidget):
         state_group = QGroupBox("Current State")
         state_layout = QVBoxLayout()
         self.state_indicator_label = QLabel("NOMINAL")
-        self.state_indicator_label.setAlignment(Qt.AlignCenter)
+        self.state_indicator_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         state_layout.addWidget(self.state_indicator_label)
         state_group.setLayout(state_layout)
         layout.addWidget(state_group)

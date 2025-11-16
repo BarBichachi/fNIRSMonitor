@@ -47,4 +47,4 @@ EXTINCTION_COEFFICIENTS = {
 }
 
 # --- Signal Quality (stddev on wavelength-1 trace) ---
-QUALITY_STD_LOWER = 2.0  # std below this → 'red', else 'green'
+QUALITY_STD_LOWER = 0.005  # std below this → 'red', else 'green'

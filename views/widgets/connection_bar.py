@@ -29,6 +29,7 @@ class ConnectionBar(QWidget):
         self.search_indicator_label.hide()  # Initially hidden
         layout.addWidget(self.search_indicator_label)
 
+        # Connect button and status indicator
         self.connect_button = QPushButton("Connect")
         layout.addWidget(self.connect_button)
         layout.addWidget(QLabel("Status:"))
@@ -49,5 +50,5 @@ class ConnectionBar(QWidget):
 
         self.record_timer_label = QLabel("00:00:00")
         self.record_timer_label.setMinimumWidth(70)
-        self.record_timer_label.setAlignment(Qt.AlignCenter)
+        self.record_timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.record_timer_label)

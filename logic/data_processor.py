@@ -10,7 +10,7 @@ class DataProcessor:
         self._init_mbll_constants()
 
         # Rolling windows
-        self.quality_buffer_size = 50  # ~1s at 50 Hz
+        self.quality_buffer_size = int(config.SAMPLE_RATE * 10)  # 10 seconds buffer
         self.sample_width = None  # 16 after mapping (8 channels × 2 λ)
         self.raw_buffer = None  # (quality_buffer_size, 16)
 

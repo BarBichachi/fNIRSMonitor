@@ -17,10 +17,10 @@ class CalibrationDialog(QDialog):
         # --- UI Elements ---
         layout = QVBoxLayout(self)
         self.info_label = QLabel("Calibrating baseline, please wait...")
-        self.info_label.setAlignment(Qt.AlignCenter)
+        self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.countdown_label = QLabel(str(config.CALIBRATION_DURATION))
-        self.countdown_label.setAlignment(Qt.AlignCenter)
+        self.countdown_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.countdown_label.setStyleSheet("font-size: 24px; font-weight: bold;")
 
         self.stop_button = QPushButton("Stop Calibration")
