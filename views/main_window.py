@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         self.controller.connection_status.connect(self._update_connection_status)
         self.controller.processed_data_ready.connect(self._on_processed_data)
         self.controller.alert_state_changed.connect(self.alert_sidebar.update_state_indicator)
+        self.controller.sample_rate_info_changed.connect(self._on_sample_rate_info_changed)
 
         # Connect Calibration Signals
         self.calibration_dialog.stop_requested.connect(self.controller.abort_calibration)
@@ -170,12 +171,11 @@ class MainWindow(QMainWindow):
         # Updates the UI elements to reflect the current connection status.
         if is_connected:
             self.connection_bar.connect_button.setText("Disconnect")
-            self.connection_bar.status_indicator.setStyleSheet("color: #388e3c;")
+            self.connection_bar.status_indicator.setStyleSheet("color: #4caf50;")
             self.connection_bar.refresh_button.setEnabled(False)
 
             # Ask for sample rate before calibration
             if not self._ask_for_sample_rate():
-                # User cancelled -> disconnect and bail out
                 self.controller.disconnect_from_stream()
                 return
 
@@ -209,23 +209,26 @@ class MainWindow(QMainWindow):
         # Ask the user to choose the sampling rate (Hz) before calibration
         items = ["10 Hz", "25 Hz", "50 Hz", "100 Hz"]
 
-        item, ok = QInputDialog.getItem(
-            self,
-            "Select sampling rate",
+        item, ok = QInputDialog.getItem(self, "Select sampling rate",
             "Please choose the sampling rate (Hz) for this session:",
-            items,
-            0,
-            False
-        )
+            items, 0, False)
 
         if not ok:
-            return False  # user cancelled
+            return False
 
         hz = int(item.split()[0])
         config.SAMPLE_RATE = hz
-        self.control_sidebar.set_sample_rate(hz)
+        self.controller.update_processing_sample_rate(hz)
         self.plot_widget.set_time_window(10, hz)
         return True
+
+    def _on_sample_rate_info_changed(self, detected_hz, processing_hz):
+        # Update left sidebar label
+        self.control_sidebar.set_sample_rate_info(detected_hz, processing_hz)
+
+        # 10-second window at chosen processing Hz
+        if processing_hz:
+            self.plot_widget.set_time_window(10, int(processing_hz))
 
     def closeEvent(self, event):
         # Ensures the controller cleans up its resources when the app closes.

@@ -30,17 +30,11 @@ class CalibrationDialog(QDialog):
         layout.addWidget(self.stop_button)
 
         # --- Connect Signals ---
-        self.stop_button.clicked.connect(self.stop_requested.emit)
-        self.stop_button.clicked.connect(self.reject)  # Close the dialog on stop
+        self.stop_button.clicked.connect(self._on_stop_clicked)
 
     def update_countdown(self, seconds_left):
         # Updates the countdown timer label.
         self.countdown_label.setText(str(seconds_left))
-
-    def closeEvent(self, event):
-        # Handles the user trying to close the dialog with the 'X' button.
-        self.stop_requested.emit()
-        event.accept()
 
     def show_message(self, title, message, detailed_text=None):
         # Shows a message box, with details section.
@@ -50,3 +44,8 @@ class CalibrationDialog(QDialog):
         if detailed_text:
             msg_box.setInformativeText(detailed_text)
         msg_box.exec()
+
+    def _on_stop_clicked(self):
+        # User explicitly requested to stop calibration
+        self.stop_requested.emit()
+        self.reject()  # close the dialog (will NOT emit stop_requested again)

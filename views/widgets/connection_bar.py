@@ -6,12 +6,13 @@ class ConnectionBar(QWidget):
     # A widget for the top bar, handling stream connection and recording controls.
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("ConnectionBar")
         self._init_ui()
 
     def _init_ui(self):
-        # Initializes the UI elements for this bar.
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(8)
 
         # --- Stream Connection Section ---
         layout.addWidget(QLabel("Stream:"))
@@ -21,6 +22,7 @@ class ConnectionBar(QWidget):
         layout.addWidget(self.stream_dropdown)
 
         self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setObjectName("HeaderButton")
         layout.addWidget(self.refresh_button)
 
         # --- "Searching..." indicator label ---
@@ -31,6 +33,7 @@ class ConnectionBar(QWidget):
 
         # Connect button and status indicator
         self.connect_button = QPushButton("Connect")
+        self.connect_button.setObjectName("PrimaryButton")
         layout.addWidget(self.connect_button)
         layout.addWidget(QLabel("Status:"))
         self.status_indicator = QLabel("●")  # A circle character
@@ -45,10 +48,12 @@ class ConnectionBar(QWidget):
         layout.addWidget(self.filename_input)
 
         self.record_button = QPushButton("Record")
+        self.record_button.setObjectName("RecordButton")
         self.record_button.setCheckable(True)
         layout.addWidget(self.record_button)
 
         self.record_timer_label = QLabel("00:00:00")
+        self.record_timer_label.setObjectName("TimerLabel")
         self.record_timer_label.setMinimumWidth(70)
         self.record_timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.record_timer_label)

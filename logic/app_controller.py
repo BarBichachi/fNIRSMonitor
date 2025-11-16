@@ -17,24 +17,28 @@ class AppController(QObject):
     # Calibration Signals
     calibration_started = Signal()
     calibration_progress = Signal(int)
-    calibration_finished = Signal(bool, object) # Emits success (bool) and baseline_data (object/None)
+    calibration_finished = Signal(bool, object)  # success, baseline_data
 
     # Signals to safely trigger actions on the background thread
     find_streams_requested = Signal()
     connect_requested = Signal(str)
     disconnect_requested = Signal()
+    sample_rate_info_changed = Signal(object, object)
 
     def __init__(self, parent=None):
-        # Initializes the AppController.
         super().__init__(parent)
+
         self.lsl_client = LSLClient()
         self.data_processor = DataProcessor()
         self.sound_player = SoundPlayer()
         self.lsl_thread = QThread()
+
         self.lsl_client.moveToThread(self.lsl_thread)
         self.is_calibrating = False
         self.last_alert_state = "Nominal"
         self.alert_rules = {}
+        self.detected_stream_rate = None
+        self.processing_sample_rate = None
 
         # --- Calibration Timer ---
         self.calibration_timer = QTimer(self)
@@ -55,12 +59,41 @@ class AppController(QObject):
 
         self.lsl_thread.start()
 
+    def _emit_sample_rate_info(self):
+        # Emit the latest detected + processing Hz to the UI
+        self.sample_rate_info_changed.emit(self.detected_stream_rate, self.processing_sample_rate)
+
+    def get_detected_sample_rate(self):
+        # Ask the LSL client for the stream's nominal rate
+        return self.lsl_client.get_nominal_sample_rate()
+
+    def update_processing_sample_rate(self, hz: float):
+        # Called by the UI when the user chooses the processing Hz
+        if hz is None or hz <= 0:
+            self.processing_sample_rate = None
+        else:
+            self.processing_sample_rate = float(hz)
+            self.lsl_client.update_processing_interval(hz)
+
+        self._emit_sample_rate_info()
+
+    def _update_detected_stream_rate_from_lsl(self):
+        # Ask the LSL client for the nominal stream rate
+        rate = self.lsl_client.get_nominal_sample_rate()
+
+        if rate is not None and rate > 0:
+            self.detected_stream_rate = float(rate)
+        else:
+            self.detected_stream_rate = None
+
+        self._emit_sample_rate_info()
+
     def set_alert_rules(self, rules):
-        # Updates the alert rules used by the data processor.
+        # Updates the alert rules used by the data processor
         self.alert_rules = rules
 
     def start_calibration(self):
-        # Starts the calibration process.
+        # Starts the calibration process
         if self.is_calibrating or not self.lsl_client.inlet:
             return
 
@@ -73,8 +106,9 @@ class AppController(QObject):
         self.calibration_progress.emit(self.calibration_seconds_left)
 
     def abort_calibration(self):
-        # Aborts the calibration process.
+        # Aborts the calibration process
         if not self.is_calibrating:
+            print("Controller: abort_calibration called but not calibrating")
             return
 
         print("Controller: Aborting calibration.")
@@ -84,9 +118,12 @@ class AppController(QObject):
         self.calibration_finished.emit(False, None)
 
     def _update_calibration_progress(self):
-        # Updates the countdown and finishes calibration when timer ends.
+        # Updates the countdown and finishes calibration when timer ends
+        print("Calibration seconds left:", self.calibration_seconds_left)
+
         self.calibration_seconds_left -= 1
         self.calibration_progress.emit(self.calibration_seconds_left)
+
         if self.calibration_seconds_left <= 0:
             self.calibration_timer.stop()
             self.is_calibrating = False
@@ -94,55 +131,63 @@ class AppController(QObject):
             self.calibration_finished.emit(success, baseline)
 
     def find_streams(self):
-        # Emits a signal to trigger a stream search on the background thread.
+        # Emits a signal to trigger a stream search on the background thread
         print("Controller: Requesting stream search...")
         self.find_streams_requested.emit()
 
     def connect_to_stream(self, source_id):
-        # Emits a signal to trigger a connection on the background thread.
+        # Emits a signal to trigger a connection on the background thread
         if source_id:
             self.connect_requested.emit(source_id)
 
     def disconnect_from_stream(self):
-        # Emits a signal to trigger a disconnection on the background thread.
+        # Emits a signal to trigger a disconnection on the background thread
         self.disconnect_requested.emit()
 
     def _on_connected(self, stream_name):
-        # Handles the connected signal from the client and forwards it.
+        # Handles the connected signal from the client
+        self._update_detected_stream_rate_from_lsl()
         self.connection_status.emit(True, stream_name)
 
     def _on_disconnected(self):
-        # Handles the disconnected signal from the client and forwards it.
+        # Handles the disconnected signal from the client
+        self.detected_stream_rate = None
+        self.processing_sample_rate = None
+        self._emit_sample_rate_info()
         self.connection_status.emit(False, "")
 
     def _on_new_data(self, data):
-        # Routes incoming data to the correct processor method based on state.
+        # Routes incoming data to the correct processor method based on state
         if self.is_calibrating:
             self.data_processor.add_calibration_sample(data['raw'])
-        else:
-            raw_sample = np.asarray(data['raw'], dtype=float)
+            return
 
-            # Handle possible trigger/timestamp channel
-            if raw_sample.size == 33:
-                raw_sample = raw_sample[:32]
+        raw_sample = np.asarray(data['raw'], dtype=float)
 
-            processed = self.data_processor.process_sample_with_baseline(raw_sample, self.alert_rules)
-            if processed:
-                processed['timestamp'] = data['timestamp']
-                self.processed_data_ready.emit(processed)
+        # Handle possible trigger/timestamp channel
+        if raw_sample.size == 33:
+            raw_sample = raw_sample[:32]
 
-                # --- Check if alert state has changed and notify the UI ---
-                current_alert_state = processed.get('alert_state', 'Nominal')
-                if current_alert_state != self.last_alert_state:
-                    self.last_alert_state = current_alert_state
-                    self.alert_state_changed.emit(current_alert_state)
-                    # --- Play sound based on state change ---
-                    if current_alert_state == "Cognitive Load":
-                        self.sound_player.play('alert')
-                        print("CONTROLLER: Playing 'Cognitive Load' sound.")
-                    else:
-                        self.sound_player.play('nominal')
-                        print("CONTROLLER: Playing 'Nominal' sound.")
+        processed = self.data_processor.process_sample_with_baseline(raw_sample, self.alert_rules)
+
+        if not processed:
+            return
+
+        processed['timestamp'] = data['timestamp']
+        self.processed_data_ready.emit(processed)
+
+        current_alert_state = processed.get('alert_state', 'Nominal')
+
+        if current_alert_state != self.last_alert_state:
+            self.last_alert_state = current_alert_state
+            self.alert_state_changed.emit(current_alert_state)
+
+            if current_alert_state == "Cognitive Load":
+                self.sound_player.play('alert')
+                print("CONTROLLER: Playing 'Cognitive Load' sound.")
+            else:
+                self.sound_player.play('nominal')
+                print("CONTROLLER: Playing 'Nominal' sound.")
 
     def close(self):
         # Thread-safely tells the client to disconnect and cleans up the thread.
