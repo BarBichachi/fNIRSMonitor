@@ -114,6 +114,11 @@ class MainWindow(QMainWindow):
         self.alert_sidebar.rules_group.setEnabled(enabled)
         self.marker_bar.setEnabled(enabled)
 
+        if enabled:
+            self.plot_update_timer.start()
+        else:
+            self.plot_update_timer.stop()
+
     def _on_calibration_finished(self, success, baseline_data):
         # Handles the result of the calibration process.
         self.calibration_dialog.close()
@@ -190,7 +195,6 @@ class MainWindow(QMainWindow):
             self.connection_bar.connect_button.setText("Connect")
             self.connection_bar.status_indicator.setStyleSheet("color: #d32f2f;")
             self.connection_bar.refresh_button.setEnabled(True)
-            self.plot_update_timer.stop()
             self._handle_refresh_clicked()
 
     def _on_processed_data(self, processed_data):

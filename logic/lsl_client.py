@@ -9,6 +9,7 @@ class LSLClient(QObject):
     connected = Signal(str)
     disconnected = Signal()
     new_data_ready = Signal(dict)
+    sample_rate_detected = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -38,6 +39,7 @@ class LSLClient(QObject):
         if streams:
             self.inlet = pylsl.StreamInlet(streams[0])
             self.connected.emit(streams[0].name())
+            self.sample_rate_detected.emit(self.get_nominal_sample_rate())
             self.processing_timer.start()
             self.watchdog_timer.start()
         else:
@@ -51,7 +53,6 @@ class LSLClient(QObject):
         # Pull a sample without blocking the thread for long
         sample, timestamp = self.inlet.pull_sample(timeout=0.0)
 
-        print("LSL Client: Pulled sample:", sample)
         if sample:
             # Reset the watchdog timer since we received data
             self.watchdog_timer.start()

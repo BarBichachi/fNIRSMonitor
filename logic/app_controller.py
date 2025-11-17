@@ -24,6 +24,7 @@ class AppController(QObject):
     connect_requested = Signal(str)
     disconnect_requested = Signal()
     sample_rate_info_changed = Signal(object, object)
+    set_interval_requested = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,6 +36,7 @@ class AppController(QObject):
 
         self.lsl_client.moveToThread(self.lsl_thread)
         self.is_calibrating = False
+        self.is_connected = False
         self.last_alert_state = "Nominal"
         self.alert_rules = {}
         self.detected_stream_rate = None
@@ -50,12 +52,14 @@ class AppController(QObject):
         self.find_streams_requested.connect(self.lsl_client.find_streams)
         self.connect_requested.connect(self.lsl_client.connect_to_stream)
         self.disconnect_requested.connect(self.lsl_client.disconnect)
+        self.set_interval_requested.connect(self.lsl_client.update_processing_interval)
 
         # --- Connect signals from the client back to the controller's slots ---
         self.lsl_client.streams_found.connect(self.streams_found)
         self.lsl_client.connected.connect(self._on_connected)
         self.lsl_client.disconnected.connect(self._on_disconnected)
         self.lsl_client.new_data_ready.connect(self._on_new_data)
+        self.lsl_client.sample_rate_detected.connect(self._on_sample_rate_detected)
 
         self.lsl_thread.start()
 
@@ -63,9 +67,13 @@ class AppController(QObject):
         # Emit the latest detected + processing Hz to the UI
         self.sample_rate_info_changed.emit(self.detected_stream_rate, self.processing_sample_rate)
 
-    def get_detected_sample_rate(self):
-        # Ask the LSL client for the stream's nominal rate
-        return self.lsl_client.get_nominal_sample_rate()
+    def _on_sample_rate_detected(self, rate):
+        # This runs in the controller/UI thread, safe to touch controller state
+        if rate is not None and rate > 0:
+            self.detected_stream_rate = float(rate)
+        else:
+            self.detected_stream_rate = None
+        self._emit_sample_rate_info()
 
     def update_processing_sample_rate(self, hz: float):
         # Called by the UI when the user chooses the processing Hz
@@ -73,18 +81,7 @@ class AppController(QObject):
             self.processing_sample_rate = None
         else:
             self.processing_sample_rate = float(hz)
-            self.lsl_client.update_processing_interval(hz)
-
-        self._emit_sample_rate_info()
-
-    def _update_detected_stream_rate_from_lsl(self):
-        # Ask the LSL client for the nominal stream rate
-        rate = self.lsl_client.get_nominal_sample_rate()
-
-        if rate is not None and rate > 0:
-            self.detected_stream_rate = float(rate)
-        else:
-            self.detected_stream_rate = None
+            self.set_interval_requested.emit(self.processing_sample_rate)
 
         self._emit_sample_rate_info()
 
@@ -94,7 +91,7 @@ class AppController(QObject):
 
     def start_calibration(self):
         # Starts the calibration process
-        if self.is_calibrating or not self.lsl_client.inlet:
+        if self.is_calibrating or not self.is_connected:
             return
 
         print("Controller: Starting calibration.")
@@ -119,8 +116,6 @@ class AppController(QObject):
 
     def _update_calibration_progress(self):
         # Updates the countdown and finishes calibration when timer ends
-        print("Calibration seconds left:", self.calibration_seconds_left)
-
         self.calibration_seconds_left -= 1
         self.calibration_progress.emit(self.calibration_seconds_left)
 
@@ -146,11 +141,12 @@ class AppController(QObject):
 
     def _on_connected(self, stream_name):
         # Handles the connected signal from the client
-        self._update_detected_stream_rate_from_lsl()
+        self.is_connected = True
         self.connection_status.emit(True, stream_name)
 
     def _on_disconnected(self):
         # Handles the disconnected signal from the client
+        self.is_connected = False
         self.detected_stream_rate = None
         self.processing_sample_rate = None
         self._emit_sample_rate_info()
@@ -184,10 +180,8 @@ class AppController(QObject):
 
             if current_alert_state == "Cognitive Load":
                 self.sound_player.play('alert')
-                print("CONTROLLER: Playing 'Cognitive Load' sound.")
             else:
                 self.sound_player.play('nominal')
-                print("CONTROLLER: Playing 'Nominal' sound.")
 
     def close(self):
         # Thread-safely tells the client to disconnect and cleans up the thread.
