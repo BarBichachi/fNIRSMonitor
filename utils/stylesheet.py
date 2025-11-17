@@ -2,6 +2,10 @@ def load_stylesheet():
     # Returns the global stylesheet for the application.
     return """
     /* ---------- Global ---------- */
+    QWidget#MainBackground {
+    background-color: #262b35;
+    }
+    
     QMainWindow {
         background-color: #111418;
         color: #e0e0e0;

@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
 
         # --- Central Widget & Main Layout ---
         central_widget = QWidget()
+        central_widget.setObjectName("MainBackground")
         self.setCentralWidget(central_widget)
         main_v_layout = QVBoxLayout(central_widget)
 
