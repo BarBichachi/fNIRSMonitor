@@ -1,6 +1,6 @@
 import numpy as np
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication, QInputDialog
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication, QInputDialog, QMessageBox
 import config
 
 # Import UI components and the AppController
@@ -221,6 +221,19 @@ class MainWindow(QMainWindow):
             return False
 
         hz = int(item.split()[0])
+        detected = self.controller.detected_stream_rate
+
+        if detected is None:
+            QMessageBox.warning(self, "Sample Rate Error", "The LSL stream did not report a nominal sampling rate. "
+                "Cannot continue with calibration.")
+            return False
+
+        # Compare with slight tolerance (LSL streams might report floats like 50.0001)
+        if abs(detected - hz) > 0.5:
+            QMessageBox.warning(self, "Sampling Rate Mismatch", f"The selected processing rate ({hz} Hz) does not match the "
+                f"LSL stream's detected nominal rate ({detected:.2f} Hz).\n\nPlease select a matching value or check your device.")
+            return False
+
         config.SAMPLE_RATE = hz
         self.controller.update_processing_sample_rate(hz)
         self.plot_widget.set_time_window(10, hz)
