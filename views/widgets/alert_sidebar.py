@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QPushButton, QLabel, QDoubleSpinBox, QSpinBox, \
     QGridLayout, QGraphicsOpacityEffect, QSizePolicy
 from PySide6.QtCore import Qt, QByteArray, QPropertyAnimation, QEasingCurve
-
+from utils.enums import CognitiveState
 
 class AlertSidebar(QWidget):
     # A widget for the right sidebar, handling calibration and state detection alerts.
@@ -14,7 +14,7 @@ class AlertSidebar(QWidget):
         self._init_animation()
 
         # Initial style
-        self.update_state_indicator("Nominal")
+        self.update_state_indicator(CognitiveState.NOMINAL)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -90,13 +90,12 @@ class AlertSidebar(QWidget):
             'duration': self.duration_spinbox.value()
         }
 
-    def update_state_indicator(self, state: str):
-        # Normalize state text
-        display_text = state.upper().replace("_", " ")
-        self.state_indicator_label.setText(display_text)
+    def update_state_indicator(self, state):
+        # Update Text
+        self.state_indicator_label.setText(state.value.upper())
 
         # Decide which visual state to apply
-        if state == "Cognitive Load":
+        if state == CognitiveState.LOAD:
             badge_state = "alert"
         else:
             # Treat everything else as nominal (including "Nominal")

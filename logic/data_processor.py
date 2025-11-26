@@ -1,5 +1,6 @@
 import numpy as np
 import config
+from utils.enums import CognitiveState  # <--- New Import
 
 
 class DataProcessor:
@@ -186,7 +187,7 @@ class DataProcessor:
         self.alert_history[:, -1] = is_above
         need = int(duration_s * config.SAMPLE_RATE)
         recent = self.alert_history[:, -need:]
-        return "Cognitive Load" if np.any(np.all(recent, axis=1)) else "Nominal"
+        return CognitiveState.LOAD if np.any(np.all(recent, axis=1)) else CognitiveState.NOMINAL
 
     def _calculate_signal_quality(self):
         if self.raw_buffer is None:

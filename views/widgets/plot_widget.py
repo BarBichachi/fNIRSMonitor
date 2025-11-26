@@ -13,8 +13,11 @@ class PlotWidget(QWidget):
         self.plot_curves = {}
         self.first_plot = None
 
-        # Data buffers
+        # Ring Buffer Initialization
         self.buffer_size = max(1, int(config.SAMPLE_RATE * 10))
+        self.ptr = 0  # Pointer to the current write position
+
+        # Pre-allocate fixed arrays (Zero-copy optimization)
         self.x_axis = np.linspace(-10, 0, self.buffer_size, endpoint=False)
         self.data = {
             'O2Hb': np.zeros((len(config.CHANNEL_NAMES), self.buffer_size)),
@@ -99,51 +102,49 @@ class PlotWidget(QWidget):
             return
 
         new_len = max(1, int(seconds * sample_rate))
-        new_x = np.linspace(-seconds, 0, new_len, endpoint=False)
-
-        # Preserve history tail
-        old_O2 = self.data['O2Hb']
-        old_HH = self.data['HHb']
-        n_ch = old_O2.shape[0]
-        keep = min(old_O2.shape[1], new_len)
-
-        self.data['O2Hb'] = np.zeros((n_ch, new_len), dtype=float)
-        self.data['HHb'] = np.zeros((n_ch, new_len), dtype=float)
-
-        if keep:
-            self.data['O2Hb'][:, -keep:] = old_O2[:, -keep:]
-            self.data['HHb'][:, -keep:] = old_HH[:, -keep:]
-
         self.buffer_size = new_len
-        self.x_axis = new_x
+        self.ptr = 0  # Reset pointer
+
+        # Re-allocate buffers (Clears history to avoid complex ring-buffer mapping)
+        self.x_axis = np.linspace(-seconds, 0, new_len, endpoint=False)
+        self.data['O2Hb'] = np.zeros((len(config.CHANNEL_NAMES), new_len), dtype=float)
+        self.data['HHb'] = np.zeros((len(config.CHANNEL_NAMES), new_len), dtype=float)
 
         if self.first_plot:
             self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1], padding=0)
 
     def push_sample(self, processed_data):
-        # Append one new processed sample at the TRUE data cadence
-        self.data['O2Hb'] = np.roll(self.data['O2Hb'], -1, axis=1)
-        self.data['HHb'] = np.roll(self.data['HHb'], -1, axis=1)
-        self.data['O2Hb'][:, -1] = processed_data['O2Hb']
-        self.data['HHb'][:, -1] = processed_data['HHb']
+        """ Writes data to the ring buffer at the current pointer. """
+        self.data['O2Hb'][:, self.ptr] = processed_data['O2Hb']
+        self.data['HHb'][:, self.ptr] = processed_data['HHb']
+
+        # Advance pointer and wrap around
+        self.ptr = (self.ptr + 1) % self.buffer_size
 
     def repaint_curves(self):
-        # Only recompute ranges and redraw curves (UI timer)
-        global_min = min(np.min(self.data['O2Hb']), np.min(self.data['HHb']))
-        global_max = max(np.max(self.data['O2Hb']), np.max(self.data['HHb']))
+        """ Reconstructs the linear view from the ring buffer and updates the plot. """
+        # "Unroll" the ring buffer: Data from ptr to end (Oldest) + Data from 0 to ptr (Newest)
+        # This creates the correct chronological order for plotting
+        o2_ordered = np.concatenate((self.data['O2Hb'][:, self.ptr:], self.data['O2Hb'][:, :self.ptr]), axis=1)
+        hh_ordered = np.concatenate((self.data['HHb'][:, self.ptr:], self.data['HHb'][:, :self.ptr]), axis=1)
+
+        # Calculate Auto-Range for Y-axis
+        global_min = min(np.min(o2_ordered), np.min(hh_ordered))
+        global_max = max(np.max(o2_ordered), np.max(hh_ordered))
         data_range = (global_max - global_min)
         padding = max(data_range * 0.1, 0.001)
 
         if self.first_plot:
             self.first_plot.setYRange(global_min - padding, global_max + padding)
-            self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1], padding=0)
 
+        # Update curves
         for i, name in enumerate(config.CHANNEL_NAMES):
-            self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=self.data['O2Hb'][i, :])
-            self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=self.data['HHb'][i, :])
+            self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=o2_ordered[i, :])
+            self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=hh_ordered[i, :])
 
     def reset(self):
         # Clear all data and repaint as a flat baseline
         self.data['O2Hb'].fill(0.0)
         self.data['HHb'].fill(0.0)
+        self.ptr = 0
         self.repaint_curves()

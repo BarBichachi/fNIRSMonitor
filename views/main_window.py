@@ -3,7 +3,6 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication, QInputDialog, QMessageBox
 import config
 
-# Import UI components and the AppController
 from views.widgets.connection_bar import ConnectionBar
 from views.widgets.control_sidebar import ControlSidebar
 from views.widgets.alert_sidebar import AlertSidebar
@@ -12,6 +11,7 @@ from views.widgets.plot_widget import PlotWidget
 from views.widgets.calibration_dialog import CalibrationDialog
 from logic.app_controller import AppController
 from utils.stylesheet import load_stylesheet
+from utils.enums import CognitiveState
 
 
 class MainWindow(QMainWindow):
@@ -116,11 +116,6 @@ class MainWindow(QMainWindow):
         self.alert_sidebar.rules_group.setEnabled(enabled)
         self.marker_bar.setEnabled(enabled)
 
-        if enabled:
-            self.plot_update_timer.start()
-        else:
-            self.plot_update_timer.stop()
-
     def _on_calibration_finished(self, success, baseline_data):
         # Handles the result of the calibration process.
         self.calibration_dialog.close()
@@ -201,14 +196,17 @@ class MainWindow(QMainWindow):
             self.plot_widget.reset()
             self.control_sidebar.reset_signals_quality_indicators()
             self.control_sidebar.set_sample_rate_info(None, None)
-            self.alert_sidebar.update_state_indicator("Nominal")
+            self.alert_sidebar.update_state_indicator(CognitiveState.NOMINAL)
             self._handle_refresh_clicked()
 
     def _on_processed_data(self, processed_data):
-        # push into ring buffer at actual data cadence
+        # 1. Push into ring buffer
         self.plot_widget.push_sample(processed_data)
 
-        # keep your quality UI update
+        # 2. Trigger Repaint immediately
+        self.plot_widget.repaint_curves()
+
+        # 3. Quality UI update
         if 'quality' in processed_data:
             self.control_sidebar.update_signals_quality_indicators(processed_data['quality'])
 

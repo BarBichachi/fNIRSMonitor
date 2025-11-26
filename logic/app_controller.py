@@ -5,6 +5,7 @@ import numpy as np
 from logic.lsl_client import LSLClient
 from logic.data_processor import DataProcessor
 from utils.sound_player import SoundPlayer
+from utils.enums import CognitiveState
 
 
 class AppController(QObject):
@@ -12,7 +13,7 @@ class AppController(QObject):
     streams_found = Signal(list)
     connection_status = Signal(bool, str)
     processed_data_ready = Signal(dict)
-    alert_state_changed = Signal(str)
+    alert_state_changed = Signal(object)
 
     # Calibration Signals
     calibration_started = Signal()
@@ -38,7 +39,7 @@ class AppController(QObject):
         self.lsl_client.moveToThread(self.lsl_thread)
         self.is_calibrating = False
         self.is_connected = False
-        self.last_alert_state = "Nominal"
+        self.last_alert_state = CognitiveState.NOMINAL
         self.alert_rules = {}
         self.detected_stream_rate = None
         self.processing_sample_rate = None
@@ -181,13 +182,13 @@ class AppController(QObject):
         processed['timestamp'] = data['timestamp']
         self.processed_data_ready.emit(processed)
 
-        current_alert_state = processed.get('alert_state', 'Nominal')
+        current_alert_state = processed.get('alert_state', CognitiveState.NOMINAL)
 
         if current_alert_state != self.last_alert_state:
             self.last_alert_state = current_alert_state
             self.alert_state_changed.emit(current_alert_state)
 
-            if current_alert_state == "Cognitive Load":
+            if current_alert_state == CognitiveState.LOAD:
                 self.sound_player.play('alert')
             else:
                 self.sound_player.play('nominal')
