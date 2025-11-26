@@ -10,6 +10,6 @@ if __name__ == '__main__':
     app.setApplicationVersion(config.APP_VERSION)
 
     window = MainWindow()
-    window.show()
+    window.showMaximized()
 
     sys.exit(app.exec())

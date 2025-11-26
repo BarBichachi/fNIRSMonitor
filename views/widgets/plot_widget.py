@@ -29,7 +29,7 @@ class PlotWidget(QWidget):
         layout.setHorizontalSpacing(8)
         layout.setVerticalSpacing(8)
 
-        axis_color = (140, 145, 155)
+        axis_color = (180, 185, 195)
 
         for i, name in enumerate(config.CHANNEL_NAMES):
             row, col = divmod(i, 2)
@@ -48,13 +48,14 @@ class PlotWidget(QWidget):
 
             # --- Actual pyqtgraph plot --------------------------------------
             plot_widget = pg.PlotWidget()
+            plot_widget.getPlotItem().hideButtons()
             plot_widget.setObjectName(f"Plot_{name}")
             self.plots[name] = plot_widget
             frame_layout.addWidget(plot_widget)
 
             # Aesthetics
             plot_widget.setBackground((17, 20, 24))  # dark
-            plot_widget.showGrid(x=True, y=True, alpha=0.15)
+            plot_widget.showGrid(x=True, y=True, alpha=0.08)
 
             plot_widget.setLabel('left', 'Δc (µM)')
             plot_widget.setLabel('bottom', 'Time (s ago)')
@@ -140,3 +141,9 @@ class PlotWidget(QWidget):
         for i, name in enumerate(config.CHANNEL_NAMES):
             self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=self.data['O2Hb'][i, :])
             self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=self.data['HHb'][i, :])
+
+    def reset(self):
+        # Clear all data and repaint as a flat baseline
+        self.data['O2Hb'].fill(0.0)
+        self.data['HHb'].fill(0.0)
+        self.repaint_curves()

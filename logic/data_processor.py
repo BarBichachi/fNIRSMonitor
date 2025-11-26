@@ -199,6 +199,32 @@ class DataProcessor:
             states.append('red' if std_dev < config.QUALITY_STD_LOWER else 'green')
         return states
 
+    def estimate_quality_during_calibration(self):
+        # Estimates signal quality for each physical channel
+        # based on the calibration_buffer (raw intensities).
+        if not self.calibration_buffer:
+            return []
+
+        calib = np.asarray(self.calibration_buffer, dtype=float)
+
+        # Limit to last N samples for a stable but responsive estimate
+        if calib.shape[0] > self.quality_buffer_size:
+            calib = calib[-self.quality_buffer_size:, :]
+
+        raw_len = calib.shape[1]
+        phys = raw_len // 2  # 2 wavelengths per channel
+
+        states = []
+        for i in range(phys):
+            ch0 = 2 * i  # use first wavelength as proxy
+            std_dev = float(np.std(calib[:, ch0]))
+            if std_dev < config.QUALITY_STD_LOWER:
+                states.append("red")
+            else:
+                states.append("green")
+
+        return states
+
     def process_sample_with_baseline(self, raw_sample, alert_rules):
         raw = np.asarray(raw_sample, dtype=float)
         raw = self._assert_raw_or_raise(raw, "process_sample_with_baseline")

@@ -11,23 +11,30 @@ class CalibrationDialog(QDialog):
         # Initializes the CalibrationDialog.
         super().__init__(parent)
         self.setWindowTitle("Calibration in Progress")
+        self.setObjectName("CalibrationDialog")
         self.setModal(True)  # This blocks interaction with the main window
         self.setFixedSize(300, 150)
 
         # --- UI Elements ---
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
         self.info_label = QLabel("Calibrating baseline, please wait...")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.info_label.setWordWrap(True)
 
         self.countdown_label = QLabel(str(config.CALIBRATION_DURATION))
         self.countdown_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.countdown_label.setStyleSheet("font-size: 24px; font-weight: bold;")
 
         self.stop_button = QPushButton("Stop Calibration")
+        self.stop_button.setObjectName("CalibrationStopButton")
 
         layout.addWidget(self.info_label)
         layout.addWidget(self.countdown_label)
-        layout.addWidget(self.stop_button)
+        layout.addStretch(1)
+        layout.addWidget(self.stop_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # --- Connect Signals ---
         self.stop_button.clicked.connect(self._on_stop_clicked)

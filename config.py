@@ -7,7 +7,7 @@ WINDOW_WIDTH = 1400
 WINDOW_HEIGHT = 800
 
 # --- LSL & Data Configuration ---
-SAMPLE_RATE = 10  # Hz
+SAMPLE_RATE = 10  # Default Hz value
 
 # --- Calibration Configuration ---
 CALIBRATION_DURATION = 10  # seconds
@@ -39,12 +39,12 @@ PLACEHOLDER_EPS = 0.02
 PAIR_VARIANCE_THRESH = 1e-4     # minimum variance to consider a pair active
 
 # --- MBLL Calculation Constants ---
-DPF = 6.0
-INTEROPTODE_DISTANCE = 3.5  # cm
+DPF = 6.56
+INTEROPTODE_DISTANCE = 2.5  # cm
 EXTINCTION_COEFFICIENTS = {
     "760nm": {"O2Hb": 0.1555, "HHb": 0.4178},
     "850nm": {"O2Hb": 0.2465, "HHb": 0.1833},
 }
 
 # --- Signal Quality (stddev on wavelength-1 trace) ---
-QUALITY_STD_LOWER = 0.005  # std below this → 'red', else 'green'
+QUALITY_STD_LOWER = 0.005  # std below this -> 'red', else 'green'

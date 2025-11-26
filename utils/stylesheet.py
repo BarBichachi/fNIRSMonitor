@@ -18,22 +18,28 @@ def load_stylesheet():
         color: #e0e0e0;
     }
     
+    QGroupBox {
+        font-size: 14px;
+        font-weight: 600;
+    }
+    
     /* ---------- Header / Connection bar ---------- */
-    #ConnectionBar {
-        background-color: #181c23;
-        border-bottom: 1px solid #252a33;
+    QWidget#ConnectionBar {
+        background-color: #2b303a;
+        border-bottom: 1px solid #303846;
+        padding: 6px 10px;
     }
 
-    #ConnectionBar QLabel {
-        color: #cfd3da;
-        font-size: 12px;
+    QWidget#ConnectionBar QLabel {
+        color: #dde2ea;
+        font-size: 13px;
     }
 
     QComboBox {
         background-color: #1f242d;
         border: 1px solid #303641;
         padding: 3px 6px;
-        border-radius: 4px;
+        border-radius: 6px;
         color: #e0e0e0;
     }
     QComboBox::drop-down {
@@ -43,7 +49,7 @@ def load_stylesheet():
     QLineEdit {
         background-color: #1f242d;
         border: 1px solid #303641;
-        border-radius: 4px;
+        border-radius: 6px;
         padding: 3px 6px;
         color: #e0e0e0;
         selection-background-color: #2196f3;
@@ -51,7 +57,7 @@ def load_stylesheet():
 
     QPushButton {
         background-color: #252a33;
-        border-radius: 4px;
+        border-radius: 6px;
         border: 1px solid #303641;
         padding: 4px 10px;
         color: #e0e0e0;
@@ -89,25 +95,25 @@ def load_stylesheet():
 
     QLabel#TimerLabel {
         font-family: "Consolas", monospace;
-        font-size: 12px;
-        color: #cfd3da;
+        font-size: 14px;
+        color: #dde2ea;
     }
 
     /* ---------- Card group boxes (sidebars) ---------- */
     QGroupBox#CardGroupBox {
         background-color: #111418;
-        border: 1px solid #374151;
-        border-radius: 8px;
+        border: 1px solid #3c4655;
+        border-radius: 10px;
         margin-top: 10px;
     }
     QGroupBox#CardGroupBox::title {
         subcontrol-origin: margin;
         left: 10px;
         top: 2px;
-        padding: 0 2px;
-        color: #cfd3da;
-        font-weight: 500;
-        background-color: #111418;
+        padding: 0 4px;
+        color: #dde2ea;
+        font-weight: 600;
+        font-size: 14px;
     }
 
     #LegendO2HbLabel {
@@ -117,32 +123,83 @@ def load_stylesheet():
         color: #ef5350; /* red */
     }
     #LegendYAxisLabel {
-        color: #b0b3ba;
-        font-size: 11px;
+        color: #bcc1cc;
+        font-size: 12px;
     }
     #RateValueLabel {
-        font-weight: 500;
-    }
-
-    /* ---------- Alert sidebar & state badge ---------- */
-    QWidget#AlertSidebar {
-        background-color: #111418;
-    }
-
-    QPushButton#StateBadge {
-        border-radius: 12px;
-        padding: 6px 16px;
         font-weight: 600;
     }
-    QPushButton#StateBadge[state="nominal"] {
-        background-color: #2e7d32;
-        border: 1px solid #43a047;
-        color: white;
+
+    /* ---------- Signal state dots ---------- */
+    QLabel#SignalDot {
+        min-width: 10px;
+        min-height: 10px;
+        max-width: 10px;
+        max-height: 10px;
+        border-radius: 5px;
+        background-color: #d32f2f;  /* default red */
     }
-    QPushButton#StateBadge[state="alert"] {
-        background-color: #c62828;
-        border: 1px solid #ef5350;
-        color: white;
+    
+    /* Dynamic state-based colors */
+    QLabel#SignalDot[state="green"] {
+        background-color: #4caf50;
+    }
+    
+    QLabel#SignalDot[state="red"] {
+        background-color: #d32f2f;
+    }
+    
+    /* ---------- Alert group box ---------- */
+    QGroupBox#AlertSideBar {
+        background-color: #111418;
+        border: 1px solid #3c4655;
+        border-radius: 10px;
+        margin-top: 10px;
+        padding: 8px;
+    }
+    QGroupBox#AlertSideBar::title {
+        subcontrol-origin: margin;
+        left: 10px;
+        top: 2px;
+        padding: 0 4px;
+        color: #dde2ea;
+        font-weight: 600;
+        font-size: 16px;
+    }
+    
+    QGroupBox#AlertSideBar QLabel {
+        font-size: 14px;     
+        color: #e2e6ee;
+    }
+    
+    QGroupBox#AlertSideBar QDoubleSpinBox,
+    QGroupBox#AlertSideBar QSpinBox {
+        min-height: 28px;
+        font-size: 14px;
+    }
+
+    /* ---------- State badge ---------- */
+    QLabel#StateBadge {
+    border-radius: 16px;
+    padding: 18px 10px;
+    font-weight: 600;
+    font-size: 24px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    }
+
+    /* Nominal state */
+    QLabel#StateBadge[state="nominal"] {
+    background-color: #43a047;
+    border: 1px solid #a5d6a7;
+    color: #ffffff;
+    }
+
+    /* Alert state */
+    QLabel#StateBadge[state="alert"] {
+    background-color: #e53935;
+    border: 1px solid #ff8a80;
+    color: #ffffff;
     }
 
     /* ---------- Plot widget & cards ---------- */
@@ -152,16 +209,40 @@ def load_stylesheet():
 
     QFrame[class~="PlotCard"] {
         background-color: #181c23;
-        border-radius: 6px;
-        border: 1px solid #252a33;
+        border-radius: 10px;
+        border: 1px solid #303846;
     }
 
     QLabel[class~="PlotTitle"] {
-        color: #cfd3da;
-        font-weight: 500;
+        color: #e3e7ef;
+        font-weight: 600;
         padding-left: 6px;
         padding-top: 2px;
-        font-size: 12px;
+        font-size: 14px;
         background-color: transparent;
+    }
+    
+    /* ---------- Calibration dialog ---------- */
+    QDialog#CalibrationDialog {
+        background-color: #181c23;
+    }
+    
+    QDialog#CalibrationDialog QLabel {
+        color: #e0e3ea;
+    }
+    
+    /* Stop button in calibration dialog */
+    QPushButton#CalibrationStopButton {
+        background-color: #252a33;
+        border-radius: 6px;
+        border: 1px solid #303641;
+        padding: 6px 10px;
+        color: #e0e0e0;
+    }
+    QPushButton#CalibrationStopButton:hover {
+        background-color: #2c323d;
+    }
+    QPushButton#CalibrationStopButton:pressed {
+        background-color: #20242c;
     }
     """

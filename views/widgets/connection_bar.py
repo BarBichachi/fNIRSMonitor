@@ -7,6 +7,7 @@ class ConnectionBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("ConnectionBar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._init_ui()
 
     def _init_ui(self):
@@ -21,23 +22,27 @@ class ConnectionBar(QWidget):
         self.stream_dropdown.addItem("Press Refresh to search")
         layout.addWidget(self.stream_dropdown)
 
+        # Refresh button
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setObjectName("HeaderButton")
         layout.addWidget(self.refresh_button)
 
-        # --- "Searching..." indicator label ---
+        # Searching indicator label
         self.search_indicator_label = QLabel("Searching...")
-        self.search_indicator_label.setStyleSheet("color: #0078d4;")  # Blue text
+        self.search_indicator_label.setStyleSheet("color: #0078d4;")
         self.search_indicator_label.hide()  # Initially hidden
         layout.addWidget(self.search_indicator_label)
 
-        # Connect button and status indicator
+        # Connect button
         self.connect_button = QPushButton("Connect")
         self.connect_button.setObjectName("PrimaryButton")
         layout.addWidget(self.connect_button)
+
+        # Status indicator
         layout.addWidget(QLabel("Status:"))
-        self.status_indicator = QLabel("●")  # A circle character
-        self.status_indicator.setStyleSheet("color: #d32f2f;")  # Red
+        self.status_indicator = QLabel()
+        self.status_indicator.setObjectName("SignalDot")
+        self.status_indicator.setProperty("state", "red")
         layout.addWidget(self.status_indicator)
 
         layout.addStretch(1)
@@ -57,3 +62,9 @@ class ConnectionBar(QWidget):
         self.record_timer_label.setMinimumWidth(70)
         self.record_timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.record_timer_label)
+
+    def set_status_connected(self, connected: bool):
+        state = "green" if connected else "red"
+        self.status_indicator.setProperty("state", state)
+        self.status_indicator.style().unpolish(self.status_indicator)
+        self.status_indicator.style().polish(self.status_indicator)

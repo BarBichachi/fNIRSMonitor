@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         self.controller.streams_found.connect(self._update_stream_dropdown)
         self.controller.connection_status.connect(self._update_connection_status)
         self.controller.processed_data_ready.connect(self._on_processed_data)
+        self.controller.calibration_quality_updated.connect(self.control_sidebar.update_signals_quality_indicators)
         self.controller.alert_state_changed.connect(self.alert_sidebar.update_state_indicator)
         self.controller.sample_rate_info_changed.connect(self._on_sample_rate_info_changed)
 
@@ -177,7 +178,7 @@ class MainWindow(QMainWindow):
         # Updates the UI elements to reflect the current connection status.
         if is_connected:
             self.connection_bar.connect_button.setText("Disconnect")
-            self.connection_bar.status_indicator.setStyleSheet("color: #4caf50;")
+            self.connection_bar.set_status_connected(True)
             self.connection_bar.refresh_button.setEnabled(False)
 
             # Ask for sample rate before calibration
@@ -194,8 +195,13 @@ class MainWindow(QMainWindow):
         else:
             self._set_analysis_controls_enabled(False)
             self.connection_bar.connect_button.setText("Connect")
-            self.connection_bar.status_indicator.setStyleSheet("color: #d32f2f;")
+            self.connection_bar.set_status_connected(False)
             self.connection_bar.refresh_button.setEnabled(True)
+            self.plot_update_timer.stop()
+            self.plot_widget.reset()
+            self.control_sidebar.reset_signals_quality_indicators()
+            self.control_sidebar.set_sample_rate_info(None, None)
+            self.alert_sidebar.update_state_indicator("Nominal")
             self._handle_refresh_clicked()
 
     def _on_processed_data(self, processed_data):
@@ -204,7 +210,7 @@ class MainWindow(QMainWindow):
 
         # keep your quality UI update
         if 'quality' in processed_data:
-            self.control_sidebar.update_quality_indicators(processed_data['quality'])
+            self.control_sidebar.update_signals_quality_indicators(processed_data['quality'])
 
     def _update_plot(self):
         # Called by the timer to update the plot with the latest data.

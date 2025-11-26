@@ -18,6 +18,7 @@ class AppController(QObject):
     calibration_started = Signal()
     calibration_progress = Signal(int)
     calibration_finished = Signal(bool, object)  # success, baseline_data
+    calibration_quality_updated = Signal(list)
 
     # Signals to safely trigger actions on the background thread
     find_streams_requested = Signal()
@@ -119,6 +120,10 @@ class AppController(QObject):
         self.calibration_seconds_left -= 1
         self.calibration_progress.emit(self.calibration_seconds_left)
 
+        quality_states = self.data_processor.estimate_quality_during_calibration()
+        if quality_states:
+            self.calibration_quality_updated.emit(quality_states)
+
         if self.calibration_seconds_left <= 0:
             self.calibration_timer.stop()
             self.is_calibrating = False
@@ -153,6 +158,10 @@ class AppController(QObject):
         self.connection_status.emit(False, "")
 
     def _on_new_data(self, data):
+        # Ignore any late samples after disconnect
+        if not self.is_connected:
+            return
+
         # Routes incoming data to the correct processor method based on state
         if self.is_calibrating:
             self.data_processor.add_calibration_sample(data['raw'])
