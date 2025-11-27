@@ -117,10 +117,10 @@ def load_stylesheet():
     }
 
     #LegendO2HbLabel {
-        color: #64b5f6; /* blue */
+        color: #ef5350; /* red */
     }
     #LegendHHbLabel {
-        color: #ef5350; /* red */
+        color: #64b5f6; /* blue */
     }
     #LegendYAxisLabel {
         color: #bcc1cc;

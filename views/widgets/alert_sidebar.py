@@ -33,10 +33,10 @@ class AlertSidebar(QWidget):
         # Threshold
         label_if = QLabel("IF O2Hb >")
         self.threshold_spinbox = QDoubleSpinBox()
-        self.threshold_spinbox.setDecimals(3)
-        self.threshold_spinbox.setSingleStep(0.001)
-        self.threshold_spinbox.setValue(0.004)
-        self.threshold_spinbox.setSuffix(" ΔµM")
+        self.threshold_spinbox.setDecimals(1)
+        self.threshold_spinbox.setSingleStep(0.5)
+        self.threshold_spinbox.setValue(4.0)
+        self.threshold_spinbox.setSuffix(" µM")
 
         rules_layout.addWidget(label_if, 0, 0, Qt.AlignmentFlag.AlignLeft)
         rules_layout.addWidget(self.threshold_spinbox, 0, 1)

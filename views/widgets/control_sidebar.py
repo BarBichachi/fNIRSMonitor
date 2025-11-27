@@ -32,12 +32,12 @@ class ControlSidebar(QWidget):
         legend_layout.setSpacing(4)
         legend_layout.addSpacing(10)
 
-        # Blue O2Hb
-        o2hb_label = QLabel("● O₂Hb (blue): oxygenated")
+        # Red O2Hb (Updated Text)
+        o2hb_label = QLabel("● O₂Hb (Red): Oxygenated")
         o2hb_label.setObjectName("LegendO2HbLabel")
 
-        # Red HHb
-        hhb_label = QLabel("● HHb (red): deoxygenated")
+        # Blue HHb (Updated Text)
+        hhb_label = QLabel("● HHb (Blue): Deoxygenated")
         hhb_label.setObjectName("LegendHHbLabel")
 
         # Y-axis explanation

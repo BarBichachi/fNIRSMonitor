@@ -190,14 +190,27 @@ class DataProcessor:
         return CognitiveState.LOAD if np.any(np.all(recent, axis=1)) else CognitiveState.NOMINAL
 
     def _calculate_signal_quality(self):
+        # Quality check: Red if SATURATED (> 4.0V) or Too Low (< 0.05V)
         if self.raw_buffer is None:
             return []
-        phys = self.raw_buffer.shape[1] // 2
+
+        # Take the most recent sample
+        latest_raw = self.raw_buffer[-1]  # shape (16,)
+
         states = []
-        for i in range(phys):
-            ch0 = i * 2  # wavelength #1 trace as proxy
-            std_dev = float(np.std(self.raw_buffer[:, ch0]))
-            states.append('red' if std_dev < config.QUALITY_STD_LOWER else 'green')
+        phys_channels = latest_raw.shape[0] // 2
+
+        for i in range(phys_channels):
+            # Check both wavelengths for this channel
+            wl1 = latest_raw[i * 2]
+            wl2 = latest_raw[i * 2 + 1]
+
+            # Artinis "Bad Signal" is usually 4.81V (Saturation) or ~0V (Dark)
+            if (wl1 > 4.0 or wl2 > 4.0) or (wl1 < 0.05 or wl2 < 0.05):
+                states.append('red')
+            else:
+                states.append('green')
+
         return states
 
     def estimate_quality_during_calibration(self):
@@ -247,7 +260,7 @@ class DataProcessor:
             return None
 
         # 4) ΔOD and MBLL
-        delta_od = -np.log(mapped / self.baseline_mean)
+        delta_od = np.log10(mapped / self.baseline_mean)
         processed = self.calculate_hemoglobin(delta_od)
         processed['quality'] = self._calculate_signal_quality()
 
@@ -260,8 +273,18 @@ class DataProcessor:
         return processed
 
     def calculate_hemoglobin(self, delta_od):
+        # 1. Prepare Input
         delta_od = np.asarray(delta_od, dtype=float)
         n = delta_od.size // 2
         delta_od_reshaped = delta_od.reshape(n, 2)
+
+        # 2. Matrix Multiplication
+        # Formula: C = Inv(E) * dOD / (DPF * d)
         delta_c = self.inverse_extinction_matrix @ delta_od_reshaped.T / (config.DPF * config.INTEROPTODE_DISTANCE)
+
+        # 3. Final Conversion matching OxySoft
+        # Multiply by 1000: Converts Millimolar (mM) -> Micromolar (uM)
+        # Multiply by -1:   Fixes the direction (Intensity vs Density correlation)
+        delta_c = delta_c * -1000.0
+
         return {'O2Hb': delta_c[0, :].tolist(), 'HHb': delta_c[1, :].tolist()}

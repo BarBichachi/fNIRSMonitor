@@ -40,10 +40,10 @@ PAIR_VARIANCE_THRESH = 1e-4     # minimum variance to consider a pair active
 
 # --- MBLL Calculation Constants ---
 DPF = 6.56
-INTEROPTODE_DISTANCE = 2.5  # cm
+INTEROPTODE_DISTANCE = 3.5  # cm
 EXTINCTION_COEFFICIENTS = {
-    "760nm": {"O2Hb": 0.1555, "HHb": 0.4178},
-    "850nm": {"O2Hb": 0.2465, "HHb": 0.1833},
+    "760nm": {"O2Hb": 0.2178, "HHb": 0.5971},
+    "850nm": {"O2Hb": 0.4459, "HHb": 0.3003},
 }
 
 # --- Signal Quality (stddev on wavelength-1 trace) ---
