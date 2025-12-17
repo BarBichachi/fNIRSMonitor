@@ -87,13 +87,13 @@ class PlotWidget(QWidget):
             else:
                 plot_widget.setYLink(self.first_plot)
 
-            # --- Curves: O2Hb blue, HHb red ---------------------------------
+            # --- Curves: O2Hb red, HHb blued ---------------------------------
             o2hb_curve = plot_widget.plot(
-                pen=pg.mkPen((239, 83, 80), width=2),  # blue
+                pen=pg.mkPen((239, 83, 80), width=2),  # red
                 name=f"{name} O2Hb"
             )
             hhb_curve = plot_widget.plot(
-                pen=pg.mkPen((100, 181, 246), width=2),   # red
+                pen=pg.mkPen((100, 181, 246), width=2),   # blue
                 name=f"{name} HHb"
             )
             self.plot_curves[name] = {'O2Hb': o2hb_curve, 'HHb': hhb_curve}
@@ -124,6 +124,9 @@ class PlotWidget(QWidget):
 
         # Advance pointer and wrap around
         self.ptr = (self.ptr + 1) % self.buffer_size
+
+        if self.ptr == 0:
+            print("[PLOT] receiving samples:", processed_data['O2Hb'][0], processed_data['HHb'][0])
 
     def repaint_curves(self):
         # Unrolls the ring buffer and updates the plots.

@@ -139,6 +139,8 @@ class MainWindow(QMainWindow):
             self.connection_bar.set_status_connected(True)
             self.connection_bar.refresh_button.setEnabled(False)
             self._set_analysis_controls_enabled(True)
+            self.plot_widget.reset()
+            self.plot_update_timer.start()
 
         else:
             self._set_analysis_controls_enabled(False)
