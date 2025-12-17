@@ -1,14 +1,11 @@
-import numpy as np
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication
 import config
 
 from views.widgets.connection_bar import ConnectionBar
 from views.widgets.control_sidebar import ControlSidebar
 from views.widgets.alert_sidebar import AlertSidebar
-from views.widgets.marker_bar import MarkerBar
 from views.widgets.plot_widget import PlotWidget
-from views.widgets.calibration_dialog import CalibrationDialog
 from logic.app_controller import AppController
 from utils.stylesheet import load_stylesheet
 from utils.enums import CognitiveState
@@ -69,17 +66,10 @@ class MainWindow(QMainWindow):
 
         main_v_layout.addLayout(main_h_layout, stretch=1)
 
-        # --- Bottom Marker Bar ---
-        self.marker_bar = MarkerBar()
-        main_v_layout.addWidget(self.marker_bar)
-
-        # --- Create Calibration Dialog ---
-        self.calibration_dialog = CalibrationDialog(self)
-
     def _init_plot_timer(self):
         # A dedicated timer for updating the plot at a smooth visual frame rate.
         self.plot_update_timer = QTimer(self)
-        self.plot_update_timer.setInterval(10)
+        self.plot_update_timer.setInterval(16) # ~60 FPS
         self.plot_update_timer.timeout.connect(self._update_plot)
 
     def _connect_signals(self):
@@ -91,15 +81,8 @@ class MainWindow(QMainWindow):
         self.controller.streams_found.connect(self._update_stream_dropdown)
         self.controller.connection_status.connect(self._update_connection_status)
         self.controller.processed_data_ready.connect(self._on_processed_data)
-        self.controller.calibration_quality_updated.connect(self.control_sidebar.update_signals_quality_indicators)
         self.controller.alert_state_changed.connect(self.alert_sidebar.update_state_indicator)
         self.controller.sample_rate_info_changed.connect(self._on_sample_rate_info_changed)
-
-        # Connect Calibration Signals
-        self.calibration_dialog.stop_requested.connect(self.controller.abort_calibration)
-        self.controller.calibration_started.connect(self.calibration_dialog.exec)
-        self.controller.calibration_progress.connect(self.calibration_dialog.update_countdown)
-        self.controller.calibration_finished.connect(self._on_calibration_finished)
 
         # Connect Alert Rule UI to Controller
         self.alert_sidebar.threshold_spinbox.valueChanged.connect(self._update_controller_rules)
@@ -113,31 +96,9 @@ class MainWindow(QMainWindow):
     def _set_analysis_controls_enabled(self, enabled):
         # Enables or disables all controls that require a calibrated connection.
         self.connection_bar.record_button.setEnabled(enabled)
+        self.connection_bar.filename_input.setEnabled(enabled)
+        self.connection_bar.record_timer_label.setEnabled(enabled)
         self.alert_sidebar.rules_group.setEnabled(enabled)
-        self.marker_bar.setEnabled(enabled)
-
-    def _on_calibration_finished(self, success, baseline_data):
-        # Handles the result of the calibration process.
-        self.calibration_dialog.close()
-
-        if not success:
-            # User aborted or calibration failed -> hard reset by disconnecting
-            self.controller.disconnect_from_stream()
-            return
-
-        self._set_analysis_controls_enabled(True)
-
-        if baseline_data is not None:
-            # Format the baseline data for display
-            detailed_text = "Average Raw Intensity Baseline:\n"
-            for i in range(len(config.CHANNEL_NAMES)):
-                # Average the two wavelengths for each physical channel
-                avg_intensity = np.mean(baseline_data[i * 2: i * 2 + 2])
-                detailed_text += f"  {config.CHANNEL_NAMES[i]}: {avg_intensity:.2f}\n"
-
-            self.calibration_dialog.show_message("Success", "Baseline calibration completed successfully.", detailed_text)
-        else:
-            self.calibration_dialog.show_message("Failed", "Baseline calibration failed or was aborted.")
 
     def _handle_refresh_clicked(self):
         # Disables button, shows indicator, and tells controller to search.
@@ -147,9 +108,11 @@ class MainWindow(QMainWindow):
         self.controller.find_streams()
 
     def _toggle_connection(self):
-        # Tells the controller to connect or disconnect based on the button text.
+        # Connects or disconnects based on current button state.
         if self.connection_bar.connect_button.text() == "Connect":
             stream_id = self.connection_bar.stream_dropdown.currentData()
+            if not stream_id:
+                return
             self.controller.connect_to_stream(stream_id)
         else:
             self.controller.disconnect_from_stream()
@@ -169,23 +132,13 @@ class MainWindow(QMainWindow):
         self.connection_bar.search_indicator_label.hide()
         self.connection_bar.refresh_button.setEnabled(True)
 
-    def _update_connection_status(self, is_connected, stream_name):
+    def _update_connection_status(self, is_connected):
         # Updates the UI elements to reflect the current connection status.
         if is_connected:
             self.connection_bar.connect_button.setText("Disconnect")
             self.connection_bar.set_status_connected(True)
             self.connection_bar.refresh_button.setEnabled(False)
-
-            # Ask for sample rate before calibration
-            if not self._ask_for_sample_rate():
-                self.controller.disconnect_from_stream()
-                return
-
-            # While calibration is running, disable analysis controls
-            self._set_analysis_controls_enabled(False)
-
-            # Start calibration (async)
-            self.controller.start_calibration()
+            self._set_analysis_controls_enabled(True)
 
         else:
             self._set_analysis_controls_enabled(False)
@@ -195,7 +148,7 @@ class MainWindow(QMainWindow):
             self.plot_update_timer.stop()
             self.plot_widget.reset()
             self.control_sidebar.reset_signals_quality_indicators()
-            self.control_sidebar.set_sample_rate_info(None, None)
+            self.control_sidebar.set_sample_rate_info(None)
             self.alert_sidebar.update_state_indicator(CognitiveState.NOMINAL)
             self._handle_refresh_clicked()
 
@@ -203,10 +156,7 @@ class MainWindow(QMainWindow):
         # 1. Push into ring buffer
         self.plot_widget.push_sample(processed_data)
 
-        # 2. Trigger Repaint immediately
-        self.plot_widget.repaint_curves()
-
-        # 3. Quality UI update
+        # 2. Quality UI update
         if 'quality' in processed_data:
             self.control_sidebar.update_signals_quality_indicators(processed_data['quality'])
 
@@ -214,43 +164,12 @@ class MainWindow(QMainWindow):
         # Called by the timer to update the plot with the latest data.
         self.plot_widget.repaint_curves()
 
-    def _ask_for_sample_rate(self) -> bool:
-        # Ask the user to choose the sampling rate (Hz) before calibration
-        items = ["10 Hz", "25 Hz", "50 Hz", "100 Hz"]
+    def _on_sample_rate_info_changed(self, detected_hz):
+        # Updates the UI labels and plot window using detected stream rate.
+        self.control_sidebar.set_sample_rate_info(detected_hz)
 
-        item, ok = QInputDialog.getItem(self, "Select sampling rate",
-            "Please choose the sampling rate (Hz) for this session:",
-            items, 0, False)
-
-        if not ok:
-            return False
-
-        hz = int(item.split()[0])
-        detected = self.controller.detected_stream_rate
-
-        if detected is None:
-            QMessageBox.warning(self, "Sample Rate Error", "The LSL stream did not report a nominal sampling rate. "
-                "Cannot continue with calibration.")
-            return False
-
-        # Compare with slight tolerance (LSL streams might report floats like 50.0001)
-        if abs(detected - hz) > 0.5:
-            QMessageBox.warning(self, "Sampling Rate Mismatch", f"The selected processing rate ({hz} Hz) does not match the "
-                f"LSL stream's detected nominal rate ({detected:.2f} Hz).\n\nPlease select a matching value or check your device.")
-            return False
-
-        config.SAMPLE_RATE = hz
-        self.controller.update_processing_sample_rate(hz)
-        self.plot_widget.set_time_window(10, hz)
-        return True
-
-    def _on_sample_rate_info_changed(self, detected_hz, processing_hz):
-        # Update left sidebar label
-        self.control_sidebar.set_sample_rate_info(detected_hz, processing_hz)
-
-        # 10-second window at chosen processing Hz
-        if processing_hz:
-            self.plot_widget.set_time_window(10, int(processing_hz))
+        if detected_hz:
+            self.plot_widget.set_time_window(10, int(detected_hz))
 
     def closeEvent(self, event):
         # Ensures the controller cleans up its resources when the app closes.

@@ -7,7 +7,6 @@ class DataProcessor:
     # Handles the scientific calculations and signal quality assessment.
     def __init__(self):
         # Initializes the DataProcessor.
-        self.baseline_mean = None
         self._init_mbll_constants()
 
         # Rolling windows
@@ -17,10 +16,48 @@ class DataProcessor:
 
         self.alert_history_size = config.ALERT_HISTORY_SECONDS * config.SAMPLE_RATE
         self.alert_history = None  # (8, alert_history_size)
+        self.od_indices = None  # Maps OxySoft OD vector (32) -> 8ch×2λ (16)
 
-        # Calibration + mapping
-        self.calibration_buffer = []  # list of raw rows (np.ndarray)
-        self.pair_indices = None  # list of 8 tuples: [(i850, i760), ...]
+        self.alert_ptr = 0  # Write index into alert history ring buffer
+
+    def reset(self):
+        # Clears session state.
+        self.raw_buffer = None
+        self.alert_history = None
+        self.od_indices = None
+        self.sample_width = None
+        self.alert_ptr = 0
+
+    def _init_od_indices(self):
+        # Builds indices for 8 channels × 2 wavelengths from OxySoft OD (Rx/L) ordering.
+        def rx1(l): return (l - 1)  # L1..L16 -> 0..15
+
+        def rx2(l): return 16 + (l - 1)  # L1..L16 -> 16..31
+
+        self.od_indices = [
+            (rx1(1), rx1(2)),  # Ch0: Rx1 Tx1 (850,760)
+            (rx1(3), rx1(4)),  # Ch1: Rx1 Tx2
+            (rx1(5), rx1(6)),  # Ch2: Rx1 Tx3
+            (rx1(7), rx1(8)),  # Ch3: Rx1 Tx4
+            (rx2(9), rx2(10)),  # Ch4: Rx2 Tx5
+            (rx2(11), rx2(12)),  # Ch5: Rx2 Tx6
+            (rx2(13), rx2(14)),  # Ch6: Rx2 Tx7
+            (rx2(15), rx2(16)),  # Ch7: Rx2 Tx8
+        ]
+
+    def _map_od_to_8ch(self, od_vec):
+        # Maps OxySoft OD vector (32) into 8 channels × 2 wavelengths (16).
+        if self.od_indices is None:
+            self._init_od_indices()
+
+        out = np.empty(16, dtype=float)
+        j = 0
+        for i850, i760 in self.od_indices:
+            out[j] = od_vec[i850]
+            out[j + 1] = od_vec[i760]
+            j += 2
+
+        return out
 
     # ---------- MBLL ----------
     def _init_mbll_constants(self):
@@ -30,261 +67,117 @@ class DataProcessor:
                         [e_wl2["O2Hb"], e_wl2["HHb"]]], dtype=float)
         self.inverse_extinction_matrix = np.linalg.inv(ext)
 
-    # ---------- Raw-only guards ----------
-    def _looks_like_raw(self, vec: np.ndarray) -> bool:
-        if vec.size not in config.RAW_ALLOWED_LENGTHS or (vec.size % 2 != 0):
-            return False
-        if np.any(vec <= 0):
-            return False
-        return True
-
-    def _assert_raw_or_raise(self, vec: np.ndarray, ctx: str):
-    # Handle OxySoft extra trigger channel (33rd value)
-        if vec.size == 33:
-            vec = vec[:32]
-
-        if not self._looks_like_raw(vec):
-            raise ValueError(
-                f"Raw-only mode: rejecting non-raw sample in {ctx}. "
-                f"Expected positive intensities with length in {sorted(config.RAW_ALLOWED_LENGTHS)}, "
-                f"got len={vec.size} (min={vec.min():.6g})."
-            )
-
-        # Return the trimmed/validated vector for downstream use
-        return vec
-
     # --- Ensure post-mapping buffers match width (16) ---
     def _ensure_buffers(self, mapped_len: int):
         if (self.sample_width == mapped_len and
-            self.raw_buffer is not None and
-            self.alert_history is not None):
+                self.raw_buffer is not None and
+                self.alert_history is not None):
             return
-        self.sample_width = mapped_len  # should be 16
+
+        self.sample_width = mapped_len
         phys = mapped_len // 2
+
         self.raw_buffer = np.zeros((self.quality_buffer_size, mapped_len), dtype=float)
+        # Reset alert history
         self.alert_history = np.full((phys, self.alert_history_size), False, dtype=bool)
-        if self.baseline_mean is None or len(self.baseline_mean) != mapped_len:
-            self.baseline_mean = None
-            self.calibration_buffer = []
-
-
-    @staticmethod
-    def _is_placeholder(mean_val: float) -> bool:
-        return (abs(mean_val - config.PLACEHOLDER_HI) < config.PLACEHOLDER_EPS) or \
-               (abs(mean_val - config.PLACEHOLDER_LO) < config.PLACEHOLDER_EPS)
-
-    @staticmethod
-    def _pair_variance(calib: np.ndarray, i850: int, i760: int) -> float:
-        return float(np.var(calib[:, i850]) + np.var(calib[:, i760]))
-
-    def _detect_active_pairs(self, calib: np.ndarray) -> list[tuple[int, int]]:
-        """ Returns 8 pairs (i850, i760).
-        Supports incoming calibration rows of length 16 (already 8 pairs) or 32 (Rx1+Rx2).
-        Assumes contiguous pairs (0,1), (2,3), ... with wavelength order [850,760]. """
-
-        raw_len = calib.shape[1]
-        all_pairs = [(2*i, 2*i + 1) for i in range(raw_len // 2)]
-
-        def select_top4(pairs_slice):
-            scored = []
-            for i850, i760 in pairs_slice:
-                m1, m2 = float(np.mean(calib[:, i850])), float(np.mean(calib[:, i760]))
-                if self._is_placeholder(m1) and self._is_placeholder(m2):
-                    score = 0.0
-                else:
-                    score = self._pair_variance(calib, i850, i760)
-                scored.append(((i850, i760), score))
-            active = [p for p, s in scored if s > config.PAIR_VARIANCE_THRESH]
-            if len(active) < 4:
-                active = [p for p, _ in sorted(scored, key=lambda x: x[1], reverse=True)[:4]]
-            else:
-                active = active[:4]
-            return active
-
-        if raw_len == 32:
-            rx1_pairs = all_pairs[:8]    # 16 values => 8 pairs
-            rx2_pairs = all_pairs[8:16]
-            return select_top4(rx1_pairs) + select_top4(rx2_pairs)  # 4 + 4
-
-        # raw_len == 16 → exactly 8 pairs: drop obvious placeholders if present
-        scored = []
-        for i850, i760 in all_pairs:
-            m1, m2 = float(np.mean(calib[:, i850])), float(np.mean(calib[:, i760]))
-            if self._is_placeholder(m1) and self._is_placeholder(m2):
-                score = 0.0
-            else:
-                score = self._pair_variance(calib, i850, i760)
-            scored.append(((i850, i760), score))
-        nonzero = [p for p, s in scored if s > config.PAIR_VARIANCE_THRESH]
-        if len(nonzero) >= config.EXPECTED_PHYSICAL_CHANNELS:
-            return nonzero[:config.EXPECTED_PHYSICAL_CHANNELS]
-        return [p for p, _ in sorted(scored, key=lambda x: x[1], reverse=True)
-                [:config.EXPECTED_PHYSICAL_CHANNELS]]
-
-    def _map_raw_to_phys(self, raw_vec: np.ndarray) -> np.ndarray:
-        """ Map incoming raw to 16-length vector:
-        [I850_1, I760_1, ..., I850_8, I760_8] """
-        out = np.empty(2 * len(self.pair_indices), dtype=float)
-        j = 0
-        for i850, i760 in self.pair_indices:
-            out[j] = raw_vec[i850]
-            out[j + 1] = raw_vec[i760]
-            j += 2
-        # clamp to positive to avoid log(0)
-        np.maximum(out, config.RAW_MIN_POS, out=out)
-        return out
-
-    # ---------- Public API ----------
-    def start_calibration(self):
-        print("Data Processor: Starting new calibration (raw-only).")
-        self.calibration_buffer = []
-        if self.alert_history is not None:
-            self.alert_history.fill(False)
-        self.baseline_mean = None
-        self.pair_indices = None
-
-    def add_calibration_sample(self, raw_sample):
-        raw = np.asarray(raw_sample, dtype=float)
-        raw = self._assert_raw_or_raise(raw, "add_calibration_sample")
-        self.calibration_buffer.append(raw)
-
-    def finish_calibration(self):
-        min_needed = int(config.SAMPLE_RATE * (config.CALIBRATION_DURATION - 2))
-        if len(self.calibration_buffer) < max(1, min_needed):
-            print("Data Processor: Calibration failed, not enough data.")
-            self.calibration_buffer = []
-            return False, None
-
-        calib = np.asarray(self.calibration_buffer, dtype=float)
-        # quick sanity: every row must look raw
-        if not all(self._looks_like_raw(row) for row in calib):
-            print("Data Processor: Calibration aborted — input not raw.")
-            self.calibration_buffer = []
-            return False, None
-
-        # 1) Detect mapping once
-        self.pair_indices = self._detect_active_pairs(calib)
-
-        # 2) Map entire calibration window to 16 columns
-        mapped_calib = np.stack([self._map_raw_to_phys(row) for row in calib], axis=0)
-
-        # 3) Init buffers and compute baseline
-        self._ensure_buffers(mapped_calib.shape[1])  # 16
-        self.baseline_mean = np.mean(mapped_calib, axis=0)
-
-        # 4) Cleanup
-        self.calibration_buffer = []
-        print("Data Processor: New baseline established (8 channels × 2 λ).")
-        return True, self.baseline_mean
-
-    def abort_calibration(self):
-        print("Data Processor: Calibration aborted.")
-        self.calibration_buffer = []
+        self.alert_ptr = 0
 
     def check_for_alert(self, o2hb_values, threshold, duration_s):
-        is_above = o2hb_values > threshold
-        self.alert_history = np.roll(self.alert_history, -1, axis=1)
-        self.alert_history[:, -1] = is_above
+        # Detects sustained threshold exceedance over the last <duration_s> seconds.
+        is_above = np.asarray(o2hb_values) > threshold
+
+        self.alert_history[:, self.alert_ptr] = is_above
+        self.alert_ptr = (self.alert_ptr + 1) % self.alert_history.shape[1]
+
         need = int(duration_s * config.SAMPLE_RATE)
-        recent = self.alert_history[:, -need:]
+        need = max(1, min(need, self.alert_history.shape[1]))
+
+        # Build circular window indices ending at the most recent written sample.
+        end = self.alert_ptr  # points to next write, so "latest" is end-1
+        idx = (np.arange(end - need, end) % self.alert_history.shape[1])
+
+        recent = self.alert_history[:, idx]
         return CognitiveState.LOAD if np.any(np.all(recent, axis=1)) else CognitiveState.NOMINAL
 
-    def _calculate_signal_quality(self):
-        # Quality check: Red if SATURATED (> 4.0V) or Too Low (< 0.05V)
+    def set_sample_rate(self, hz: float):
+        # Updates internal sample-rate-dependent buffer sizes.
+        hz = float(hz) if hz and hz > 0 else None
+        if hz is None:
+            return
+
+        config.SAMPLE_RATE = hz  # keeps rest of app consistent
+        self.quality_buffer_size = int(hz * 10)
+        self.alert_history_size = int(config.ALERT_HISTORY_SECONDS * hz)
+
+        # Force reallocation on next sample.
+        self.raw_buffer = None
+        self.alert_history = None
+        self.sample_width = None
+
+    def _calculate_signal_quality(self, adc_value=None):
+        # Returns per-channel quality states using ADC if available, otherwise OD sanity checks.
+        if adc_value is not None:
+            if adc_value >= config.PLACEHOLDER_HI - config.PLACEHOLDER_EPS:
+                return ['red'] * config.EXPECTED_PHYSICAL_CHANNELS
+            return ['green'] * config.EXPECTED_PHYSICAL_CHANNELS
+
         if self.raw_buffer is None:
             return []
 
-        # Take the most recent sample
-        latest_raw = self.raw_buffer[-1]  # shape (16,)
-
+        latest = self.raw_buffer[-1]
         states = []
-        phys_channels = latest_raw.shape[0] // 2
-
-        for i in range(phys_channels):
-            # Check both wavelengths for this channel
-            wl1 = latest_raw[i * 2]
-            wl2 = latest_raw[i * 2 + 1]
-
-            # Artinis "Bad Signal" is usually 4.81V (Saturation) or ~0V (Dark)
-            if (wl1 > 4.0 or wl2 > 4.0) or (wl1 < 0.05 or wl2 < 0.05):
-                states.append('red')
-            else:
-                states.append('green')
-
+        for i in range(latest.size // 2):
+            w1 = latest[i * 2]
+            w2 = latest[i * 2 + 1]
+            states.append('green' if (np.isfinite(w1) and np.isfinite(w2)) else 'red')
         return states
 
-    def estimate_quality_during_calibration(self):
-        # Estimates signal quality for each physical channel
-        # based on the calibration_buffer (raw intensities).
-        if not self.calibration_buffer:
-            return []
+    def process_sample_od(self, lsl_sample, alert_rules):
+        # Processes one LSL sample containing OxySoft OD (+ optional ADC) into Hb changes.
+        vec = np.asarray(lsl_sample, dtype=float)
 
-        calib = np.asarray(self.calibration_buffer, dtype=float)
+        adc_value = None
 
-        # Limit to last N samples for a stable but responsive estimate
-        if calib.shape[0] > self.quality_buffer_size:
-            calib = calib[-self.quality_buffer_size:, :]
+        if vec.size == 32:
+            od_vec = vec
+        elif vec.size == 33:
+            od_vec = vec[:32]
+            adc_value = vec[32]
+        elif vec.size >= 34:
+            od_vec = vec[:32]
+            adc_value = vec[32]  # assume ADC is right after OD
+            # vec[33] could be event/trigger; ignored here
+        else:
+            raise ValueError(f"Expected at least 32 OD values. Got {vec.size}")
 
-        raw_len = calib.shape[1]
-        phys = raw_len // 2  # 2 wavelengths per channel
-
-        states = []
-        for i in range(phys):
-            ch0 = 2 * i  # use first wavelength as proxy
-            std_dev = float(np.std(calib[:, ch0]))
-            if std_dev < config.QUALITY_STD_LOWER:
-                states.append("red")
-            else:
-                states.append("green")
-
-        return states
-
-    def process_sample_with_baseline(self, raw_sample, alert_rules):
-        raw = np.asarray(raw_sample, dtype=float)
-        raw = self._assert_raw_or_raise(raw, "process_sample_with_baseline")
-
-        if self.pair_indices is None:
-            return None  # not calibrated yet
-
-        # 1) map -> 16-width
-        mapped = self._map_raw_to_phys(raw)
-
-        # 2) ensure buffers
-        self._ensure_buffers(mapped.size)
-
-        # 3) roll + append
-        self.raw_buffer[:-1] = self.raw_buffer[1:]
-        self.raw_buffer[-1] = mapped
-
-        if self.baseline_mean is None:
+        # Skips placeholder-only samples (often seen at stream start).
+        if np.allclose(od_vec, config.PLACEHOLDER_HI, atol=config.PLACEHOLDER_EPS):
             return None
 
-        # 4) ΔOD and MBLL
-        delta_od = np.log10(mapped / self.baseline_mean)
-        processed = self.calculate_hemoglobin(delta_od)
-        processed['quality'] = self._calculate_signal_quality()
+        mapped_od = self._map_od_to_8ch(od_vec)
+        self._ensure_buffers(mapped_od.size)
 
-        # 5) Alerts
-        processed['alert_state'] = self.check_for_alert(
-            np.asarray(processed['O2Hb'], dtype=float),
-            alert_rules['threshold'],
-            alert_rules['duration']
-        )
+        self.raw_buffer[:-1] = self.raw_buffer[1:]
+        self.raw_buffer[-1] = mapped_od
+
+        processed = self.calculate_hemoglobin(mapped_od)
+        processed['quality'] = self._calculate_signal_quality(adc_value)
+
+        thresh = alert_rules.get('threshold', 4.0)
+        dur = alert_rules.get('duration', 3)
+        processed['alert_state'] = self.check_for_alert(np.asarray(processed['O2Hb']), thresh, dur)
+
         return processed
 
     def calculate_hemoglobin(self, delta_od):
-        # 1. Prepare Input
+        # Converts ΔOD (per channel, 2 wavelengths) into ΔHb (µM) using MBLL.
         delta_od = np.asarray(delta_od, dtype=float)
         n = delta_od.size // 2
-        delta_od_reshaped = delta_od.reshape(n, 2)
+        reshaped = delta_od.reshape(n, 2)  # [850,760]
 
-        # 2. Matrix Multiplication
-        # Formula: C = Inv(E) * dOD / (DPF * d)
-        delta_c = self.inverse_extinction_matrix @ delta_od_reshaped.T / (config.DPF * config.INTEROPTODE_DISTANCE)
+        od_760_850 = reshaped[:, [1, 0]].T  # -> [760,850] rows
 
-        # 3. Final Conversion matching OxySoft
-        # Multiply by 1000: Converts Millimolar (mM) -> Micromolar (uM)
-        # Multiply by -1:   Fixes the direction (Intensity vs Density correlation)
-        delta_c = delta_c * -1000.0
+        delta_c = (self.inverse_extinction_matrix @ od_760_850) / (config.DPF * config.INTEROPTODE_DISTANCE)
+        delta_c = delta_c * 1000.0  # mM -> µM
 
         return {'O2Hb': delta_c[0, :].tolist(), 'HHb': delta_c[1, :].tolist()}

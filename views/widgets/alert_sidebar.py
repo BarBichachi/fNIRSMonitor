@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QPushButton, QLabel, QDoubleSpinBox, QSpinBox, \
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QLabel, QDoubleSpinBox, QSpinBox, \
     QGridLayout, QGraphicsOpacityEffect, QSizePolicy
 from PySide6.QtCore import Qt, QByteArray, QPropertyAnimation, QEasingCurve
 from utils.enums import CognitiveState
@@ -91,6 +91,7 @@ class AlertSidebar(QWidget):
         }
 
     def update_state_indicator(self, state):
+        # Updates the state badge text/style and plays a pulse animation.
         # Update Text
         self.state_indicator_label.setText(state.value.upper())
 

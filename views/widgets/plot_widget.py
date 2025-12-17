@@ -24,6 +24,10 @@ class PlotWidget(QWidget):
             'HHb': np.zeros((len(config.CHANNEL_NAMES), self.buffer_size))
         }
 
+        # Auto-range control
+        self._y_autorange_counter = 0
+        self._y_autorange_every = 5  # Every 5 repaints (~12 Hz if repaint is 60 Hz)
+
         self._init_ui()
 
     def _init_ui(self):
@@ -64,7 +68,7 @@ class PlotWidget(QWidget):
             plot_widget.setLabel('bottom', 'Time (s ago)')
 
             plot_widget.enableAutoRange(x=False, y=False)
-            plot_widget.setXRange(self.x_axis[0], self.x_axis[-1], padding=0)
+            plot_widget.setXRange(self.x_axis[0], self.x_axis[-1])
 
             # Disable user panning/zoom
             vb = plot_widget.getViewBox()
@@ -111,10 +115,10 @@ class PlotWidget(QWidget):
         self.data['HHb'] = np.zeros((len(config.CHANNEL_NAMES), new_len), dtype=float)
 
         if self.first_plot:
-            self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1], padding=0)
+            self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1])
 
     def push_sample(self, processed_data):
-        """ Writes data to the ring buffer at the current pointer. """
+        # Writes data to the ring buffer at the current pointer.
         self.data['O2Hb'][:, self.ptr] = processed_data['O2Hb']
         self.data['HHb'][:, self.ptr] = processed_data['HHb']
 
@@ -122,22 +126,20 @@ class PlotWidget(QWidget):
         self.ptr = (self.ptr + 1) % self.buffer_size
 
     def repaint_curves(self):
-        """ Reconstructs the linear view from the ring buffer and updates the plot. """
-        # "Unroll" the ring buffer: Data from ptr to end (Oldest) + Data from 0 to ptr (Newest)
-        # This creates the correct chronological order for plotting
+        # Unrolls the ring buffer and updates the plots.
         o2_ordered = np.concatenate((self.data['O2Hb'][:, self.ptr:], self.data['O2Hb'][:, :self.ptr]), axis=1)
         hh_ordered = np.concatenate((self.data['HHb'][:, self.ptr:], self.data['HHb'][:, :self.ptr]), axis=1)
 
-        # Calculate Auto-Range for Y-axis
-        global_min = min(np.min(o2_ordered), np.min(hh_ordered))
-        global_max = max(np.max(o2_ordered), np.max(hh_ordered))
-        data_range = (global_max - global_min)
-        padding = max(data_range * 0.1, 0.001)
+        self._y_autorange_counter += 1
+        do_autorange = (self._y_autorange_counter % self._y_autorange_every) == 0
 
-        if self.first_plot:
+        if do_autorange and self.first_plot:
+            global_min = min(np.min(o2_ordered), np.min(hh_ordered))
+            global_max = max(np.max(o2_ordered), np.max(hh_ordered))
+            data_range = (global_max - global_min)
+            padding = max(data_range * 0.1, 0.001)
             self.first_plot.setYRange(global_min - padding, global_max + padding)
 
-        # Update curves
         for i, name in enumerate(config.CHANNEL_NAMES):
             self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=o2_ordered[i, :])
             self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=hh_ordered[i, :])

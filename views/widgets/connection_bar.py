@@ -50,6 +50,7 @@ class ConnectionBar(QWidget):
         # --- Recording Section ---
         layout.addWidget(QLabel("File:"))
         self.filename_input = QLineEdit("session_01")
+        self.filename_input.setFixedWidth(140)
         layout.addWidget(self.filename_input)
 
         self.record_button = QPushButton("Record")
@@ -63,7 +64,10 @@ class ConnectionBar(QWidget):
         self.record_timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.record_timer_label)
 
+        self.connect_button.setEnabled(False)
+
     def set_status_connected(self, connected: bool):
+        # Updates the status dot color based on connection state.
         state = "green" if connected else "red"
         self.status_indicator.setProperty("state", state)
         self.status_indicator.style().unpolish(self.status_indicator)

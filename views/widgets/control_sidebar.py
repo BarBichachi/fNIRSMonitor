@@ -15,7 +15,6 @@ class ControlSidebar(QWidget):
 
         # labels for sample-rate info (stream + processing)
         self.stream_rate_value_label = None
-        self.processing_rate_value_label = None
 
         self._init_ui()
 
@@ -41,7 +40,7 @@ class ControlSidebar(QWidget):
         hhb_label.setObjectName("LegendHHbLabel")
 
         # Y-axis explanation
-        yaxis_label = QLabel("Y-axis: Δconcentration (µM) relative to baseline")
+        yaxis_label = QLabel("Y-axis: Δconcentration (µM) relative to OxySoft reference")
         yaxis_label.setWordWrap(True)
         yaxis_label.setObjectName("LegendYAxisLabel")
 
@@ -62,15 +61,8 @@ class ControlSidebar(QWidget):
         self.stream_rate_value_label = QLabel("– Hz")
         self.stream_rate_value_label.setObjectName("RateValueLabel")
 
-        proc_label = QLabel("Processing rate:")
-        self.processing_rate_value_label = QLabel("– Hz")
-        self.processing_rate_value_label.setObjectName("RateValueLabel")
-
         rate_layout.addWidget(stream_label)
         rate_layout.addWidget(self.stream_rate_value_label)
-        rate_layout.addSpacing(4)
-        rate_layout.addWidget(proc_label)
-        rate_layout.addWidget(self.processing_rate_value_label)
 
         rate_group.setLayout(rate_layout)
         layout.addWidget(rate_group)
@@ -133,17 +125,12 @@ class ControlSidebar(QWidget):
             label.style().unpolish(label)
             label.style().polish(label)
 
-    def set_sample_rate_info(self, detected_hz: float | None, processing_hz: float | None):
-        """Update the labels for detected LSL stream rate and processing rate."""
+    def set_sample_rate_info(self, detected_hz: float | None):
+        # Updates the label for detected LSL stream rate.
         if detected_hz is None:
             self.stream_rate_value_label.setText("– Hz")
         else:
             self.stream_rate_value_label.setText(f"{detected_hz:.1f} Hz")
-
-        if processing_hz is None:
-            self.processing_rate_value_label.setText("– Hz")
-        else:
-            self.processing_rate_value_label.setText(f"{processing_hz:.1f} Hz")
 
     def reset_signals_quality_indicators(self):
         for dot in self.quality_indicators:
