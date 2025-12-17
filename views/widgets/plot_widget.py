@@ -125,6 +125,9 @@ class PlotWidget(QWidget):
         # Advance pointer and wrap around
         self.ptr = (self.ptr + 1) % self.buffer_size
 
+        if self.ptr == 0:
+            print("[PLOT] receiving samples:", processed_data['O2Hb'][0], processed_data['HHb'][0])
+
     def repaint_curves(self):
         # Unrolls the ring buffer and updates the plots.
         o2_ordered = np.concatenate((self.data['O2Hb'][:, self.ptr:], self.data['O2Hb'][:, :self.ptr]), axis=1)
