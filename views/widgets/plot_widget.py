@@ -87,13 +87,13 @@ class PlotWidget(QWidget):
             else:
                 plot_widget.setYLink(self.first_plot)
 
-            # --- Curves: O2Hb blue, HHb red ---------------------------------
+            # --- Curves: O2Hb red, HHb blued ---------------------------------
             o2hb_curve = plot_widget.plot(
-                pen=pg.mkPen((239, 83, 80), width=2),  # blue
+                pen=pg.mkPen((239, 83, 80), width=2),  # red
                 name=f"{name} O2Hb"
             )
             hhb_curve = plot_widget.plot(
-                pen=pg.mkPen((100, 181, 246), width=2),   # red
+                pen=pg.mkPen((100, 181, 246), width=2),   # blue
                 name=f"{name} HHb"
             )
             self.plot_curves[name] = {'O2Hb': o2hb_curve, 'HHb': hhb_curve}

@@ -28,10 +28,6 @@ EXPECTED_PHYSICAL_CHANNELS = 8
 # Incoming raw order per pair is assumed [850, 760]
 WAVELENGTH_ORDER = ("850nm", "760nm")
 
-# Raw-only enforcement
-RAW_ALLOWED_LENGTHS = {16, 32}  # 16 = already 8×2λ, 32 = Rx1(8×2λ)+Rx2(8×2λ)
-RAW_MIN_POS = 1e-6              # clamp to avoid log(0)
-
 # Placeholders sometimes used by exports for inactive pairs
 PLACEHOLDER_HI = 4.81625
 PLACEHOLDER_LO = 0.02025

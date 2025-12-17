@@ -1,6 +1,6 @@
 import numpy as np
 import config
-from utils.enums import CognitiveState  # <--- New Import
+from utils.enums import CognitiveState
 
 
 class DataProcessor:
@@ -19,6 +19,7 @@ class DataProcessor:
         self.od_indices = None  # Maps OxySoft OD vector (32) -> 8ch×2λ (16)
 
         self.alert_ptr = 0  # Write index into alert history ring buffer
+        self.baseline_od = None
 
     def reset(self):
         # Clears session state.
@@ -27,6 +28,7 @@ class DataProcessor:
         self.od_indices = None
         self.sample_width = None
         self.alert_ptr = 0
+        self.baseline_od = None
 
     def _init_od_indices(self):
         # Builds indices for 8 channels × 2 wavelengths from OxySoft OD (Rx/L) ordering.
@@ -157,10 +159,16 @@ class DataProcessor:
         mapped_od = self._map_od_to_8ch(od_vec)
         self._ensure_buffers(mapped_od.size)
 
-        self.raw_buffer[:-1] = self.raw_buffer[1:]
-        self.raw_buffer[-1] = mapped_od
+        # Initialize baseline from the first valid mapped sample
+        if self.baseline_od is None:
+            self.baseline_od = mapped_od.copy()
 
-        processed = self.calculate_hemoglobin(mapped_od)
+        delta_od = mapped_od - self.baseline_od
+
+        self.raw_buffer[:-1] = self.raw_buffer[1:]
+        self.raw_buffer[-1] = delta_od
+
+        processed = self.calculate_hemoglobin(delta_od)
         processed['quality'] = self._calculate_signal_quality(adc_value)
 
         thresh = alert_rules.get('threshold', 4.0)

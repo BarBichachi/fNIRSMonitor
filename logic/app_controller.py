@@ -1,4 +1,6 @@
 from PySide6.QtCore import QObject, QThread, Signal
+
+import config
 from logic.lsl_client import LSLClient
 from logic.data_processor import DataProcessor
 from utils.sound_player import SoundPlayer
@@ -95,6 +97,23 @@ class AppController(QObject):
         if not self.is_connected:
             return
 
+        raw = data['raw']
+
+        # ---- DEBUG: what arrives to processing ----
+        try:
+            import numpy as np
+            vec = np.asarray(raw, dtype=float)
+
+            ph_mask = np.abs(vec[:32] - config.PLACEHOLDER_HI) <= config.PLACEHOLDER_EPS if vec.size >= 32 else None
+            ph_count = int(ph_mask.sum()) if ph_mask is not None else -1
+
+            print("[MON] raw len =", vec.size, "placeholders =", ph_count, "/ 32",
+                  "min =", round(float(np.nanmin(vec)), 4),
+                  "max =", round(float(np.nanmax(vec)), 4))
+        except Exception as ex:
+            print("[MON] raw debug failed:", ex)
+
+
         # 1. Standard Processing (No calibration check needed)
         # Processes one OD(+ADC) sample into Hb and state.
         try:
@@ -103,8 +122,21 @@ class AppController(QObject):
             print(f"Controller: Processing failed: {ex}")
             return
 
-        if not processed:
+        if processed is None:
+            print("[MON] processed=None (dropped)")
             return
+
+            # ---- DEBUG: what goes to graphs ----
+        try:
+            import numpy as np
+            o2 = np.asarray(processed.get("O2Hb", []), dtype=float)
+            hh = np.asarray(processed.get("HHb", []), dtype=float)
+            print("[MON] O2Hb min/max =", round(float(np.nanmin(o2)), 4), "/", round(float(np.nanmax(o2)), 4),
+                  "nan =", int(np.isnan(o2).sum()), "inf =", int(np.isinf(o2).sum()))
+            print("[MON] HHb  min/max =", round(float(np.nanmin(hh)), 4), "/", round(float(np.nanmax(hh)), 4),
+                  "nan =", int(np.isnan(hh).sum()), "inf =", int(np.isinf(hh).sum()))
+        except Exception as ex:
+            print("[MON] processed debug failed:", ex)
 
         processed['timestamp'] = data['timestamp']
         self.processed_data_ready.emit(processed)
