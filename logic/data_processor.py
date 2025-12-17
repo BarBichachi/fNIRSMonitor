@@ -84,8 +84,8 @@ class DataProcessor:
         self.alert_history = np.full((phys, self.alert_history_size), False, dtype=bool)
         self.alert_ptr = 0
 
-    def check_for_alert(self, o2hb_values, threshold, duration_s):
-        # Detects sustained threshold exceedance over the last <duration_s> seconds.
+    def check_for_alert(self, o2hb_values, threshold, duration_s, min_channels=2):
+        # Detects sustained threshold exceedance in >=min_channels channels
         is_above = np.asarray(o2hb_values) > threshold
 
         self.alert_history[:, self.alert_ptr] = is_above
@@ -94,12 +94,12 @@ class DataProcessor:
         need = int(duration_s * config.SAMPLE_RATE)
         need = max(1, min(need, self.alert_history.shape[1]))
 
-        # Build circular window indices ending at the most recent written sample.
-        end = self.alert_ptr  # points to next write, so "latest" is end-1
+        end = self.alert_ptr
         idx = (np.arange(end - need, end) % self.alert_history.shape[1])
 
-        recent = self.alert_history[:, idx]
-        return CognitiveState.LOAD if np.any(np.all(recent, axis=1)) else CognitiveState.NOMINAL
+        recent = self.alert_history[:, idx]  # (8, need)
+        sustained = np.all(recent, axis=1)  # (8,)
+        return CognitiveState.LOAD if (np.sum(sustained) >= min_channels) else CognitiveState.NOMINAL
 
     def set_sample_rate(self, hz: float):
         # Updates internal sample-rate-dependent buffer sizes.
