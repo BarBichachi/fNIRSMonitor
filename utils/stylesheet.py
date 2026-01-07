@@ -84,12 +84,26 @@ def load_stylesheet():
 
     QPushButton#RecordButton {
         background-color: #d32f2f;
-        border-color: #d32f2f;
+        border: 1px solid #d32f2f;
         color: white;
         font-weight: 600;
     }
+    
+    /* Checked = recording (base state) */
     QPushButton#RecordButton:checked {
         background-color: #b71c1c;
+        border-color: #b71c1c;
+    }
+    
+    /* Flash ON (attention pulse) */
+    QPushButton#RecordButton[flash="true"]:checked {
+        background-color: #e53935;   /* brighter red */
+        border-color: #ff6f60;       /* subtle glow */
+    }
+    
+    /* Flash OFF (dim phase) */
+    QPushButton#RecordButton[flash="false"]:checked {
+        background-color: #b71c1c;   /* base recording red */
         border-color: #b71c1c;
     }
 

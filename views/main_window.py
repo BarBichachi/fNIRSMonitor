@@ -1,3 +1,5 @@
+import time
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication
 import config
@@ -25,8 +27,12 @@ class MainWindow(QMainWindow):
         # A variable to hold the most recent data sample
         self.latest_data = None
 
+        self.record_start_ms = None
+
         self._init_ui()
         self._init_plot_timer()
+        self._init_record_timer()
+        self._init_record_flash_timer()
         self._connect_signals()
 
         # --- Set initial UI state ---
@@ -76,6 +82,9 @@ class MainWindow(QMainWindow):
         # Connects UI actions to the controller and controller signals to UI updates
         self.connection_bar.refresh_button.clicked.connect(self._handle_refresh_clicked)
         self.connection_bar.connect_button.clicked.connect(self._toggle_connection)
+        self.connection_bar.record_button.toggled.connect(self._on_record_toggled)
+        self.connection_bar.auto_record_checkbox.toggled.connect(self._on_auto_record_toggled)
+        self.connection_bar.filename_input.textChanged.connect(self._on_session_name_changed)
 
         # The view now listens for the final, processed data
         self.controller.streams_found.connect(self._update_stream_dropdown)
@@ -99,6 +108,7 @@ class MainWindow(QMainWindow):
         self.connection_bar.filename_input.setEnabled(enabled)
         self.connection_bar.record_timer_label.setEnabled(enabled)
         self.alert_sidebar.rules_group.setEnabled(enabled)
+        self.connection_bar.auto_record_checkbox.setEnabled(True)
 
     def _handle_refresh_clicked(self):
         # Disables button, shows indicator, and tells controller to search.
@@ -139,11 +149,21 @@ class MainWindow(QMainWindow):
             self.connection_bar.set_status_connected(True)
             self.connection_bar.refresh_button.setEnabled(False)
             self._set_analysis_controls_enabled(True)
+            self.controller.set_auto_record_on_connect(self.connection_bar.auto_record_checkbox.isChecked(),
+                session_name=self.connection_bar.filename_input.text().strip())
+
+            if self.connection_bar.auto_record_checkbox.isChecked():
+                self.connection_bar.record_button.setChecked(True)
+
             self.plot_widget.reset()
             self.plot_update_timer.start()
 
         else:
             self._set_analysis_controls_enabled(False)
+            if self.connection_bar.record_button.isChecked():
+                self.connection_bar.record_button.setChecked(False)
+            self._stop_record_timer()
+            self._stop_record_flash()
             self.connection_bar.connect_button.setText("Connect")
             self.connection_bar.set_status_connected(False)
             self.connection_bar.refresh_button.setEnabled(True)
@@ -178,3 +198,117 @@ class MainWindow(QMainWindow):
         print("Main window: Close event triggered.")
         self.controller.close()
         event.accept()
+
+    def _init_record_timer(self):
+        # Updates the record timer label while recording
+        self.record_timer = QTimer(self)
+        self.record_timer.setInterval(200)
+        self.record_timer.timeout.connect(self._update_record_timer_label)
+
+    def _start_record_timer(self):
+        # Starts the UI timer for the recording label
+        self.record_start_ms = self._now_ms()
+        self.connection_bar.record_timer_label.setText("00:00:00")
+        self.record_timer.start()
+
+    def _stop_record_timer(self):
+        # Stops the UI timer and resets label
+        self.record_timer.stop()
+        self.record_start_ms = None
+        self.connection_bar.record_timer_label.setText("00:00:00")
+
+    def _update_record_timer_label(self):
+        # Updates the HH:MM:SS timer label based on elapsed recording time
+        if self.record_start_ms is None:
+            return
+
+        elapsed_ms = self._now_ms() - self.record_start_ms
+        if elapsed_ms < 0:
+            elapsed_ms = 0
+
+        total_sec = elapsed_ms // 1000
+        hh = total_sec // 3600
+        mm = (total_sec % 3600) // 60
+        ss = total_sec % 60
+
+        self.connection_bar.record_timer_label.setText(f"{hh:02d}:{mm:02d}:{ss:02d}")
+
+    def _now_ms(self):
+        # Returns current time in ms (monotonic)
+        return int(time.monotonic() * 1000)
+
+    def _on_record_toggled(self, checked: bool):
+        # Starts/stops recording via controller based on Record toggle
+        if checked:
+            session_name = self.connection_bar.filename_input.text().strip()
+            if not session_name:
+                self.connection_bar.record_button.setChecked(False)
+                return
+
+            self.controller.start_recording(session_name)
+
+            if self.controller.recorder.is_recording:
+                self.connection_bar.record_button.setText("Stop Recording")
+                self.connection_bar.filename_input.setEnabled(False)
+                self._start_record_timer()
+                self._start_record_flash()
+            else:
+                self.connection_bar.record_button.setChecked(False)
+                self.connection_bar.record_button.setText("Record")
+                self.connection_bar.filename_input.setEnabled(True)
+                self._start_record_flash()
+        else:
+            self.controller.stop_recording()
+            self.connection_bar.record_button.setText("Record")
+            self.connection_bar.filename_input.setEnabled(True)
+            self._stop_record_timer()
+            self._start_record_flash()
+
+    def _on_auto_record_toggled(self, checked: bool):
+        # Arms/disarms auto-record on connect
+        session_name = self.connection_bar.filename_input.text().strip()
+        self.controller.set_auto_record_on_connect(bool(checked), session_name=session_name)
+
+    def _on_session_name_changed(self, _):
+        # Keeps controller's auto-record session name in sync with UI
+        if self.connection_bar.auto_record_checkbox.isChecked():
+            session_name = self.connection_bar.filename_input.text().strip()
+            self.controller.set_auto_record_on_connect(True, session_name=session_name)
+
+    def _init_record_flash_timer(self):
+        # Flashes the record button while recording
+        self.m_RecordFlashOn = False
+        self.m_RecordFlashTimer = QTimer(self)
+        self.m_RecordFlashTimer.setInterval(450)
+        self.m_RecordFlashTimer.timeout.connect(self._toggle_record_flash)
+
+    def _start_record_flash(self):
+        # Starts flashing the record button
+        self.m_RecordFlashOn = True
+        self.connection_bar.record_button.setProperty("flash", True)
+        self._repolish_widget(self.connection_bar.record_button)
+        self.m_RecordFlashTimer.start()
+
+    def _stop_record_flash(self):
+        # Stops flashing the record button and resets style
+        if hasattr(self, "m_RecordFlashTimer"):
+            self.m_RecordFlashTimer.stop()
+        self.m_RecordFlashOn = False
+        self.connection_bar.record_button.setProperty("flash", False)
+        self._repolish_widget(self.connection_bar.record_button)
+
+    def _toggle_record_flash(self):
+        # Toggles the flash property (drives stylesheet)
+        if not self.connection_bar.record_button.isChecked():
+            self._stop_record_flash()
+            return
+
+        self.m_RecordFlashOn = not self.m_RecordFlashOn
+        self.connection_bar.record_button.setProperty("flash", self.m_RecordFlashOn)
+        self._repolish_widget(self.connection_bar.record_button)
+
+    def _repolish_widget(self, i_Widget):
+        # Re-applies stylesheet after dynamic property change
+        i_Widget.style().unpolish(i_Widget)
+        i_Widget.style().polish(i_Widget)
+        i_Widget.update()

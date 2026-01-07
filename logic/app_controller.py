@@ -1,3 +1,4 @@
+import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
 import config
@@ -5,6 +6,7 @@ from logic.lsl_client import LSLClient
 from logic.data_processor import DataProcessor
 from utils.sound_player import SoundPlayer
 from utils.enums import CognitiveState
+from utils.session_recorder import SessionRecorder
 
 
 class AppController(QObject):
@@ -34,6 +36,14 @@ class AppController(QObject):
         self.alert_rules = {}
 
         self.detected_stream_rate = None
+
+        self.recorder = SessionRecorder()
+
+        self.connected_stream_name = None
+        self.connected_source_id = None
+
+        self.auto_record_on_connect = False
+        self.auto_record_session_name = None
 
         # --- Connect controller request signals to client slots ---
         self.find_streams_requested.connect(self.lsl_client.find_streams)
@@ -73,21 +83,29 @@ class AppController(QObject):
         if self.is_connected:
             return
 
+        self.connected_source_id = source_id
         self.connect_requested.emit(source_id)
 
     def disconnect_from_stream(self):
         # Emits a signal to trigger a disconnection on the background thread
         self.disconnect_requested.emit()
 
-    def _on_connected(self):
+    def _on_connected(self, stream_name: str):
         # Handles the connected signal from the client
         self.is_connected = True
+        self.connected_stream_name = stream_name
         self.data_processor.reset()
         self.connection_status.emit(True)
 
+        if self.auto_record_on_connect and self.auto_record_session_name:
+            self.start_recording(self.auto_record_session_name)
+
     def _on_disconnected(self):
         # Handles the disconnected signal from the client
+        self.stop_recording()
         self.is_connected = False
+        self.connected_stream_name = None
+        self.connected_source_id = None
         self.detected_stream_rate = None
         self._emit_sample_rate_info()
         self.connection_status.emit(False)
@@ -96,6 +114,29 @@ class AppController(QObject):
         # Ignore any late samples after disconnect
         if not self.is_connected:
             return
+
+        raw_vec = data.get('raw', [])
+        od32 = []
+        adc = 0
+        event = 0
+
+        try:
+            vec = np.asarray(raw_vec, dtype=float)
+            if vec.size >= 32:
+                od32 = vec[:32].tolist()
+
+            if vec.size >= 33 and np.isfinite(vec[32]):
+                adc = int(vec[32])
+
+            if vec.size >= 34 and np.isfinite(vec[33]):
+                event = int(vec[33])
+        except Exception:
+            od32 = []
+            adc = 0
+            event = 0
+
+        if self.recorder.is_recording and len(od32) == 32:
+            self.recorder.write_raw(od32, adc=adc, event=event)
 
         # 1. Standard Processing (No calibration check needed)
         # Processes one OD(+ADC) sample into Hb and state.
@@ -106,11 +147,15 @@ class AppController(QObject):
             return
 
         if processed is None:
+            if self.recorder.is_recording:
+                self.recorder.write_calculated(None, None, event=event)
             print("[MON] processed=None (dropped)")
             return
 
         processed['timestamp'] = data['timestamp']
         self.processed_data_ready.emit(processed)
+        if self.recorder.is_recording:
+            self.recorder.write_calculated(processed.get('O2Hb'), processed.get('HHb'), event=event)
 
         # 2. Update Audio/State
         current_state = processed.get('alert_state', CognitiveState.NOMINAL)
@@ -126,9 +171,45 @@ class AppController(QObject):
     def close(self):
         # Thread-safely tells the client to disconnect and cleans up the thread.
         print("Controller: Closing...")
+        self.stop_recording()
         self.disconnect_from_stream()
         self.lsl_thread.msleep(50)
         self.lsl_thread.quit()
         if not self.lsl_thread.wait(3000): # Wait up to 3 seconds
             print("Controller: LSL thread did not shut down gracefully. Terminating.")
             self.lsl_thread.terminate()
+
+    def set_auto_record_on_connect(self, enabled: bool, session_name: str = None):
+        # Arms/disarms auto-recording when a stream connects
+        self.auto_record_on_connect = bool(enabled)
+        self.auto_record_session_name = session_name
+
+    def start_recording(self, session_name: str):
+        # Starts recording if connected and not already recording
+        if not self.is_connected:
+            return
+
+        if self.recorder.is_recording:
+            return
+
+        rate = float(self.detected_stream_rate) if self.detected_stream_rate else float(config.SAMPLE_RATE)
+
+        stream_info = {
+            "name": self.connected_stream_name or "",
+            "type": config.STREAM_TYPE or "",
+            "source_id": self.connected_source_id or "",
+        }
+
+        cfg_snapshot = {
+            "DPF": config.DPF,
+            "INTEROPTODE_DISTANCE": config.INTEROPTODE_DISTANCE,
+            "WAVELENGTH_ORDER": getattr(config, "WAVELENGTH_ORDER", None),
+            "EXTINCTION_COEFFICIENTS": getattr(config, "EXTINCTION_COEFFICIENTS", None),
+            "CHANNEL_NAMES": getattr(config, "CHANNEL_NAMES", None),
+        }
+
+        self.recorder.start(session_name, stream_info, rate, cfg_snapshot)
+
+    def stop_recording(self):
+        # Stops recording safely
+        self.recorder.stop()

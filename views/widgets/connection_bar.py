@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QPushButton, QLineEdit
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QPushButton, QLineEdit, QCheckBox
 from PySide6.QtCore import Qt
 
 
@@ -33,6 +33,10 @@ class ConnectionBar(QWidget):
         self.search_indicator_label.hide()  # Initially hidden
         layout.addWidget(self.search_indicator_label)
 
+        # Auto-record checkbox
+        self.auto_record_checkbox = QCheckBox("Auto-record on connect")
+        layout.addWidget(self.auto_record_checkbox)
+
         # Connect button
         self.connect_button = QPushButton("Connect")
         self.connect_button.setObjectName("PrimaryButton")
@@ -65,6 +69,8 @@ class ConnectionBar(QWidget):
         layout.addWidget(self.record_timer_label)
 
         self.connect_button.setEnabled(False)
+        self.record_button.setEnabled(False)
+        self.auto_record_checkbox.setChecked(False)
 
     def set_status_connected(self, connected: bool):
         # Updates the status dot color based on connection state.
@@ -72,3 +78,8 @@ class ConnectionBar(QWidget):
         self.status_indicator.setProperty("state", state)
         self.status_indicator.style().unpolish(self.status_indicator)
         self.status_indicator.style().polish(self.status_indicator)
+
+        self.record_button.setEnabled(connected)
+        self.auto_record_checkbox.setEnabled(True)  # can be changed even when disconnected
+        if not connected:
+            self.record_button.setChecked(False)
