@@ -8,64 +8,72 @@ class SessionRecorder:
 
     def __init__(self, recordings_root: str = "./Recordings"):
         # Initializes the recorder without starting a session
-        self.m_RecordingsRoot = recordings_root
-        self.m_SessionFolder = None
+        self.recordings_root = recordings_root
+        self.session_folder = None
 
-        self.m_RawFile = None
-        self.m_CalcFile = None
+        self.file_base = None
+        self.raw_path = None
+        self.calc_path = None
+        self.raw_file = None
+        self.calc_file = None
 
-        self.m_IsRecording = False
-        self.m_SampleIndex = 0
-        self.m_StartTime = None
+        self.is_recording = False
+        self.sample_index = 0
+        self.start_time = None
 
     # ---------- Public API ----------
 
     def start(self, session_name: str, stream_info: dict, sample_rate: float, config_snapshot: dict):
         # Starts a new recording session and opens both output files
-        if self.m_IsRecording:
+        if self.is_recording:
             raise RuntimeError("Recording already in progress")
 
-        self.m_StartTime = datetime.datetime.now()
-        date = self.m_StartTime.strftime("%d-%m-%Y")
-        time = self.m_StartTime.strftime("%H-%M-%S")
-        self.m_SessionFolder = os.path.join(self.m_RecordingsRoot, date)
-        os.makedirs(self.m_SessionFolder, exist_ok=True)
+        self.start_time = datetime.datetime.now()
+        date = self.start_time.strftime("%d-%m-%Y")
+        time_str = self.start_time.strftime("%H-%M-%S")
 
-        file_name = f"{date}_{time}_{session_name}"
-        raw_path = self._get_safe_path(os.path.join(self.m_SessionFolder, f"{file_name}_RawOD.txt"))
-        calc_path = self._get_safe_path(os.path.join(self.m_SessionFolder, f"{file_name}_Calculated.txt"))
+        self.session_folder = os.path.join(self.recordings_root, date)
+        os.makedirs(self.session_folder, exist_ok=True)
 
-        self.m_RawFile = open(raw_path, "w", encoding="utf-8")
-        self.m_CalcFile = open(calc_path, "w", encoding="utf-8")
+        file_base = f"{date}_{time_str}_{session_name}"
+        raw_path = self._get_safe_path(os.path.join(self.session_folder, f"{file_base}_RawOD.txt"))
+        calc_path = self._get_safe_path(os.path.join(self.session_folder, f"{file_base}_Calculated.txt"))
 
-        self._write_raw_header(self.m_RawFile, stream_info, sample_rate, config_snapshot)
-        self._write_calc_header(self.m_CalcFile, stream_info, sample_rate, config_snapshot)
+        self.file_base = file_base
+        self.raw_path = raw_path
+        self.calc_path = calc_path
 
-        self.m_SampleIndex = 0
-        self.m_IsRecording = True
+        self.raw_file = open(raw_path, "w", encoding="utf-8")
+        self.calc_file = open(calc_path, "w", encoding="utf-8")
+
+        self._write_raw_header(self.raw_file, stream_info, sample_rate, config_snapshot)
+        self._write_calc_header(self.calc_file, stream_info, sample_rate, config_snapshot)
+
+        self.sample_index = 0
+        self.is_recording = True
 
     def write_raw(self, od32: List[float], adc: int = 0, event: int = 0):
         # Writes one raw sample row (OD32 + ADC + Event)
-        if not self.m_IsRecording:
+        if not self.is_recording:
             return
 
-        row = [str(self.m_SampleIndex)]
+        row = [str(self.sample_index)]
         row.extend(f"{v:.5f}" for v in od32)
         row.append(str(adc))
         row.append(str(event))
 
-        self.m_RawFile.write("\t".join(row) + "\n")
-        self.m_RawFile.flush()
+        self.raw_file.write("\t".join(row) + "\n")
+        self.raw_file.flush()
 
     def write_calculated(self,
                          o2hb: Optional[List[float]],
                          hhb: Optional[List[float]],
                          event: int = 0):
         # Writes one calculated sample row (O2Hb/HHb or zeros if missing)
-        if not self.m_IsRecording:
+        if not self.is_recording:
             return
 
-        row = [str(self.m_SampleIndex)]
+        row = [str(self.sample_index)]
 
         if o2hb is None or hhb is None:
             # Placeholder row (processed=None)
@@ -78,33 +86,29 @@ class SessionRecorder:
                 row.append(f"{hhb[i]:.4f}")
 
         row.append(str(event))
-        self.m_CalcFile.write("\t".join(row) + "\n")
-        self.m_CalcFile.flush()
+        self.calc_file.write("\t".join(row) + "\n")
+        self.calc_file.flush()
 
-        self.m_SampleIndex += 1
+        self.sample_index += 1
 
     def stop(self):
         # Stops recording and closes files safely
-        if not self.m_IsRecording:
+        if not self.is_recording:
             return
 
         try:
-            if self.m_RawFile:
-                self.m_RawFile.flush()
-                self.m_RawFile.close()
-            if self.m_CalcFile:
-                self.m_CalcFile.flush()
-                self.m_CalcFile.close()
+            if self.raw_file:
+                self.raw_file.flush()
+                self.raw_file.close()
+            if self.calc_file:
+                self.calc_file.flush()
+                self.calc_file.close()
         finally:
-            self.m_RawFile = None
-            self.m_CalcFile = None
-            self.m_IsRecording = False
-            self.m_SampleIndex = 0
-            self.m_StartTime = None
-
-    @property
-    def is_recording(self) -> bool:
-        return self.m_IsRecording
+            self.raw_file = None
+            self.calc_file = None
+            self.is_recording = False
+            self.sample_index = 0
+            self.start_time = None
 
     # ---------- Internal helpers ----------
 
@@ -163,7 +167,7 @@ class SessionRecorder:
 
     def _write_common_header(self, f, stream_info, sample_rate, cfg, export_kind: str):
         # Writes shared header information in an OxySoft-like style (only real known values)
-        export_dt = self.m_StartTime
+        export_dt = self.start_time
         f.write(f"Export date:\t{export_dt.strftime('%d-%m-%Y')}\n")
         f.write(f"Export time:\t{export_dt.strftime('%H:%M:%S')}\n")
         f.write(f"Export kind:\t{export_kind}\n")
@@ -215,3 +219,12 @@ class SessionRecorder:
     def _write_column_index_row(self, f, count: int):
         # Writes the column index row (1 2 3 ...)
         f.write("\t".join(str(i) for i in range(1, count + 1)) + "\n")
+
+    def write_notes(self, notes_text: str):
+        # Writes notes for the current recording next to the session files
+        if not self.file_base or not self.session_folder:
+            return
+
+        notes_path = self._get_safe_path(os.path.join(self.session_folder, f"{self.file_base}_Notes.txt"))
+        with open(notes_path, "w", encoding="utf-8") as f:
+            f.write(notes_text.strip() + "\n")

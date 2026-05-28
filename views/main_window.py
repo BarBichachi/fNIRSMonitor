@@ -1,13 +1,14 @@
 import time
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication
+from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QApplication
 import config
 
 from views.widgets.connection_bar import ConnectionBar
 from views.widgets.control_sidebar import ControlSidebar
 from views.widgets.alert_sidebar import AlertSidebar
 from views.widgets.plot_widget import PlotWidget
+from views.dialogs.recording_notes_dialog import *
 from logic.app_controller import AppController
 from utils.stylesheet import load_stylesheet
 from utils.enums import CognitiveState
@@ -34,6 +35,7 @@ class MainWindow(QMainWindow):
         self._init_record_timer()
         self._init_record_flash_timer()
         self._connect_signals()
+        self._on_auto_naming_toggled(True)
 
         # --- Set initial UI state ---
         self._set_analysis_controls_enabled(False) # Disable controls on startup
@@ -82,9 +84,12 @@ class MainWindow(QMainWindow):
         # Connects UI actions to the controller and controller signals to UI updates
         self.connection_bar.refresh_button.clicked.connect(self._handle_refresh_clicked)
         self.connection_bar.connect_button.clicked.connect(self._toggle_connection)
+        self.connection_bar.open_recordings_button.clicked.connect(self._on_open_recordings_folder_clicked)
+        self.connection_bar.auto_naming_checkbox.toggled.connect(self._on_auto_naming_toggled)
         self.connection_bar.record_button.toggled.connect(self._on_record_toggled)
         self.connection_bar.auto_record_checkbox.toggled.connect(self._on_auto_record_toggled)
         self.connection_bar.filename_input.textChanged.connect(self._on_session_name_changed)
+        self.connection_bar.filename_input.editingFinished.connect(self._normalize_session_name_if_needed)
 
         # The view now listens for the final, processed data
         self.controller.streams_found.connect(self._update_stream_dropdown)
@@ -240,6 +245,7 @@ class MainWindow(QMainWindow):
     def _on_record_toggled(self, checked: bool):
         # Starts/stops recording via controller based on Record toggle
         if checked:
+            self._normalize_session_name_if_needed()
             session_name = self.connection_bar.filename_input.text().strip()
             if not session_name:
                 self.connection_bar.record_button.setChecked(False)
@@ -256,13 +262,24 @@ class MainWindow(QMainWindow):
                 self.connection_bar.record_button.setChecked(False)
                 self.connection_bar.record_button.setText("Record")
                 self.connection_bar.filename_input.setEnabled(True)
-                self._start_record_flash()
+                self._stop_record_timer()
+                self._stop_record_flash()
+
         else:
-            self.controller.stop_recording()
             self.connection_bar.record_button.setText("Record")
             self.connection_bar.filename_input.setEnabled(True)
             self._stop_record_timer()
-            self._start_record_flash()
+            self._stop_record_flash()
+
+            notes = get_recording_notes(self)
+            if notes:
+                self.controller.save_recording_notes(notes)
+
+            self.controller.stop_recording()
+
+            if self.connection_bar.auto_naming_checkbox.isChecked():
+                current = self.connection_bar.filename_input.text().strip()
+                self.connection_bar.filename_input.setText(self.controller.get_next_session_name(current))
 
     def _on_auto_record_toggled(self, checked: bool):
         # Arms/disarms auto-record on connect
@@ -277,23 +294,23 @@ class MainWindow(QMainWindow):
 
     def _init_record_flash_timer(self):
         # Flashes the record button while recording
-        self.m_RecordFlashOn = False
-        self.m_RecordFlashTimer = QTimer(self)
-        self.m_RecordFlashTimer.setInterval(450)
-        self.m_RecordFlashTimer.timeout.connect(self._toggle_record_flash)
+        self.record_flash_on = False
+        self.record_flash_timer = QTimer(self)
+        self.record_flash_timer.setInterval(450)
+        self.record_flash_timer.timeout.connect(self._toggle_record_flash)
 
     def _start_record_flash(self):
         # Starts flashing the record button
-        self.m_RecordFlashOn = True
+        self.record_flash_on = True
         self.connection_bar.record_button.setProperty("flash", True)
         self._repolish_widget(self.connection_bar.record_button)
-        self.m_RecordFlashTimer.start()
+        self.record_flash_timer.start()
 
     def _stop_record_flash(self):
         # Stops flashing the record button and resets style
-        if hasattr(self, "m_RecordFlashTimer"):
-            self.m_RecordFlashTimer.stop()
-        self.m_RecordFlashOn = False
+        if hasattr(self, "record_flash_timer"):
+            self.record_flash_timer.stop()
+        self.record_flash_on = False
         self.connection_bar.record_button.setProperty("flash", False)
         self._repolish_widget(self.connection_bar.record_button)
 
@@ -303,8 +320,8 @@ class MainWindow(QMainWindow):
             self._stop_record_flash()
             return
 
-        self.m_RecordFlashOn = not self.m_RecordFlashOn
-        self.connection_bar.record_button.setProperty("flash", self.m_RecordFlashOn)
+        self.record_flash_on = not self.record_flash_on
+        self.connection_bar.record_button.setProperty("flash", self.record_flash_on)
         self._repolish_widget(self.connection_bar.record_button)
 
     def _repolish_widget(self, i_Widget):
@@ -312,3 +329,24 @@ class MainWindow(QMainWindow):
         i_Widget.style().unpolish(i_Widget)
         i_Widget.style().polish(i_Widget)
         i_Widget.update()
+
+    def _on_open_recordings_folder_clicked(self):
+        # Tells controller to open today's recordings folder
+        self.controller.open_today_recordings_folder()
+
+    def _on_auto_naming_toggled(self, checked: bool):
+        # Updates the session name if auto-naming is enabled
+        if not checked:
+            return
+
+        self.connection_bar.filename_input.setText(self.controller.get_next_session_name())
+
+    def _normalize_session_name_if_needed(self):
+        # Normalizes the session name if auto-naming is enabled
+        if not self.connection_bar.auto_naming_checkbox.isChecked():
+            return
+
+        current = self.connection_bar.filename_input.text().strip()
+        normalized = self.controller.normalize_session_name(current)
+        if normalized and normalized != current:
+            self.connection_bar.filename_input.setText(normalized)

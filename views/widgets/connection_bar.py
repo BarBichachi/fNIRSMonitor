@@ -52,7 +52,15 @@ class ConnectionBar(QWidget):
         layout.addStretch(1)
 
         # --- Recording Section ---
-        layout.addWidget(QLabel("File:"))
+        self.open_recordings_button = QPushButton("Open Recording Folder")
+        self.open_recordings_button.setObjectName("HeaderButton")
+        layout.addWidget(self.open_recordings_button)
+
+        self.auto_naming_checkbox = QCheckBox("Auto Naming")
+        self.auto_naming_checkbox.setChecked(True)
+        layout.addWidget(self.auto_naming_checkbox)
+
+        layout.addWidget(QLabel("File name:"))
         self.filename_input = QLineEdit("session_01")
         self.filename_input.setFixedWidth(140)
         layout.addWidget(self.filename_input)

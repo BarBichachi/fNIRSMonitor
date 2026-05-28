@@ -7,6 +7,8 @@ from logic.data_processor import DataProcessor
 from utils.sound_player import SoundPlayer
 from utils.enums import CognitiveState
 from utils.session_recorder import SessionRecorder
+from utils.session_naming import split_name_and_index, get_next_index_for_prefix, format_name, get_today_recordings_folder
+from utils.os_helpers import open_folder
 
 
 class AppController(QObject):
@@ -213,3 +215,34 @@ class AppController(QObject):
     def stop_recording(self):
         # Stops recording safely
         self.recorder.stop()
+
+    def open_today_recordings_folder(self):
+        # Opens today's recording folder in Explorer
+        folder = get_today_recordings_folder(self.recorder.recordings_root)
+        open_folder(folder)
+
+    def normalize_session_name(self, text: str) -> str:
+        # Converts "SleepExperiment" -> "SleepExperiment_01" (or next available if already exists)
+        prefix, idx = split_name_and_index(text)
+        if not prefix:
+            return ""
+
+        # If user already typed a number, keep it
+        if idx is not None:
+            return format_name(prefix, idx)
+
+        next_idx = get_next_index_for_prefix(self.recorder.recordings_root, prefix)
+        return format_name(prefix, next_idx)
+
+    def get_next_session_name(self, current_text: str | None = None) -> str:
+        # Returns next name for current prefix (SleepExperiment_02, etc.)
+        prefix, idx = split_name_and_index(current_text or "")
+        if not prefix:
+            prefix = "session"
+
+        next_idx = get_next_index_for_prefix(self.recorder.recordings_root, prefix)
+        return format_name(prefix, next_idx)
+
+    def save_recording_notes(self, notes_text: str):
+        # Saves notes for the last/current session recording
+        self.recorder.write_notes(notes_text)
