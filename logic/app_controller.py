@@ -31,6 +31,9 @@ class AppController(QObject):
     connection_status = Signal(bool)
     processed_data_ready = Signal(dict)
     alert_state_changed = Signal(object)
+    # Emitted when a stream was found but failed the metadata contract.
+    # Phase 6 will hook a modal dialog to this; for now the UI just logs.
+    connection_error = Signal(str)
 
     # Signals to safely trigger actions on the background thread.
     find_streams_requested = Signal()
@@ -83,6 +86,7 @@ class AppController(QObject):
         self.lsl_client.disconnected.connect(self._on_disconnected)
         self.lsl_client.new_data_ready.connect(self._on_new_data)
         self.lsl_client.sample_rate_detected.connect(self._on_sample_rate_detected)
+        self.lsl_client.connection_rejected.connect(self._on_connection_rejected)
 
         self.lsl_thread.start()
 
@@ -174,6 +178,13 @@ class AppController(QObject):
             self.stop_recording()
         self.connected_source_id = None
         self._disconnect_time_ms = None
+
+    def _on_connection_rejected(self, reason: str) -> None:
+        # LSL client refused the stream because metadata didn't pass our
+        # contract. Forward to the UI; the subsequent `disconnected` from the
+        # client cleans up the rest.
+        print(f"Controller: connection rejected: {reason}")
+        self.connection_error.emit(reason)
 
     # ---------- Sample processing ----------
 

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from PySide6.QtCore import QObject, Signal, QTimer
 import pylsl
 import config
@@ -15,6 +17,10 @@ class LSLClient(QObject):
     # Payload: {'samples': [[...], [...]], 'timestamps': [t1, t2]}.
     new_data_ready = Signal(dict)
     sample_rate_detected = Signal(object)
+    # Fired when a stream was found but its metadata did not pass our contract
+    # check (channel count, type, etc). Payload is a short human-readable reason.
+    # The connection is not entered; controller surfaces this to the UI.
+    connection_rejected = Signal(str)
 
     # Maximum samples to pull per timer tick. A 50 Hz stream with a 20 ms tick
     # produces ~1 sample/tick; 64 is generous headroom for transient backlog.
@@ -22,6 +28,12 @@ class LSLClient(QObject):
 
     # Watchdog: if no samples arrive in this many ms, treat the stream as dead.
     WATCHDOG_MS = 5000
+
+    # Metadata contract: what we require an OxySoft Direct-Channel stream to
+    # look like before we accept the connection.
+    # 32 = OD only, 33 = OD + ADC, 34 = OD + ADC + Event.
+    EXPECTED_CHANNEL_COUNTS = (32, 33, 34)
+    EXPECTED_STREAM_TYPE = "NIRS"
 
     def __init__(self):
         super().__init__()
@@ -80,6 +92,17 @@ class LSLClient(QObject):
             self.disconnected.emit()
             return
 
+        # Validate the stream's metadata BEFORE we announce a connection.
+        # A wrong channel count or stream type means the consumer downstream
+        # would silently interpret whatever bytes arrive as OD values.
+        reject_reason = self._validate_inlet_metadata()
+        if reject_reason is not None:
+            print(f"LSL Client: rejecting stream: {reject_reason}")
+            self._close_inlet_safely()
+            self.connection_rejected.emit(reject_reason)
+            self.disconnected.emit()
+            return
+
         rate = self._get_nominal_sample_rate()
         self.connected.emit(streams[0].name())
         self.sample_rate_detected.emit(rate)
@@ -95,17 +118,84 @@ class LSLClient(QObject):
         # Idempotent: safe to call from watchdog and from explicit user action.
         self.processing_timer.stop()
         self.watchdog_timer.stop()
+        if self._close_inlet_safely():
+            print("LSL Client: stream closed.")
+        self.disconnected.emit()
 
+    def _close_inlet_safely(self) -> bool:
+        # Returns True if there was an inlet to close.
         inlet = self.inlet
         self.inlet = None
-        if inlet is not None:
-            try:
-                inlet.close_stream()
-            except Exception as ex:
-                print(f"LSL Client: close_stream failed (ignored): {ex}")
-            print("LSL Client: stream closed.")
+        if inlet is None:
+            return False
+        try:
+            inlet.close_stream()
+        except Exception as ex:
+            print(f"LSL Client: close_stream failed (ignored): {ex}")
+        return True
 
-        self.disconnected.emit()
+    # ---------- Metadata validation ----------
+
+    def _validate_inlet_metadata(self) -> Optional[str]:
+        if self.inlet is None:
+            return "no inlet"
+
+        try:
+            info = self.inlet.info()
+            ch_count = info.channel_count()
+            stream_type = info.type()
+        except Exception as ex:
+            return f"failed to read stream info: {ex}"
+
+        if stream_type != self.EXPECTED_STREAM_TYPE:
+            return (
+                f"stream type {stream_type!r} != expected "
+                f"{self.EXPECTED_STREAM_TYPE!r}"
+            )
+
+        if ch_count not in self.EXPECTED_CHANNEL_COUNTS:
+            return (
+                f"channel count {ch_count} not in "
+                f"{self.EXPECTED_CHANNEL_COUNTS}; expected an OxySoft "
+                f"Direct-Channel OD stream (32 OD + optional ADC + Event)"
+            )
+
+        # Information-only: log whatever per-channel descriptors the stream
+        # publishes. We don't drive channel mapping from this yet because the
+        # exact OxySoft 3.2.72 schema needs to be verified on a real device;
+        # DataProcessor's hardcoded OctaMon layout stays authoritative until
+        # then. This log is also how a user on a new device would learn what
+        # their stream actually advertises.
+        try:
+            self._log_channel_descriptors(info)
+        except Exception as ex:
+            print(
+                f"LSL Client: could not enumerate channel descriptors "
+                f"({ex}); continuing with hardcoded layout."
+            )
+
+        return None
+
+    def _log_channel_descriptors(self, info) -> None:
+        desc = info.desc()
+        ch = desc.child("channels").child("channel")
+        labels = []
+        while not ch.empty():
+            label = ch.child_value("label") or "(no label)"
+            wavelength = ch.child_value("wavelength") or ""
+            ch_type = ch.child_value("type") or ""
+            labels.append((label, wavelength, ch_type))
+            ch = ch.next_sibling()
+
+        if not labels:
+            print("LSL Client: stream advertises no per-channel descriptors.")
+            return
+
+        print(f"LSL Client: stream advertises {len(labels)} channel descriptors.")
+        # Print at most the first 8 so the log stays readable; first 8 covers
+        # one OctaMon receiver's worth of optodes.
+        for i, (label, wl, t) in enumerate(labels[:8]):
+            print(f"  ch[{i}]: label={label!r} wavelength={wl!r} type={t!r}")
 
     # ---------- Internal ----------
 

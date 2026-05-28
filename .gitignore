@@ -1,2 +1,4 @@
 /utils/full_project_code.txt
 /Recordings/
+__pycache__/
+.pytest_cache/

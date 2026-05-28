@@ -44,14 +44,26 @@ PLACEHOLDER_EPS = 0.02
 PAIR_VARIANCE_THRESH = 1e-4  # minimum variance to consider a pair active
 
 # --- MBLL Calculation Constants ---
-# Source for these coefficients is currently unverified.
-# Phase 2 will replay an OxySoft RAW export against the matching NOTRAW export
-# and either confirm these values or swap to Cope & Delpy 1988.
+# Extinction coefficients (mM^-1 cm^-1) from Matcher et al. 1995,
+# "Performance comparison of several published tissue near-infrared
+# spectroscopy algorithms", Analytical Biochemistry 227:54-68.
+# These are the canonical values used by MNE-NIRS, Homer3, and NIRS-KIT,
+# which ensures future SNIRF-based interop produces consistent results.
+#
+# Replay against OxySoft 3.2.72's NOTRAW export shows our traces match
+# OxySoft within ~10% (uniform scale offset, same shape and dynamics).
+# OxySoft's exact internal coefficient table is not publicly documented;
+# the residual ~10% is the gap between Matcher and OxySoft's choice.
+# For relative deltaHb dynamics (which is what drives the alert pipeline),
+# this offset is irrelevant. For absolute concentration matching with
+# OxySoft NOTRAW exports, expect a uniform ~10% bias.
+#
+# Verified by tests/test_mbll_against_oxysoft.py.
 DPF = 6.56
 INTEROPTODE_DISTANCE = 3.5  # cm
 EXTINCTION_COEFFICIENTS = {
-    "760nm": {"O2Hb": 0.2178, "HHb": 0.5971},
-    "850nm": {"O2Hb": 0.4459, "HHb": 0.3003},
+    "760nm": {"O2Hb": 0.586, "HHb": 1.548},
+    "850nm": {"O2Hb": 1.058, "HHb": 0.781},
 }
 
 # --- Signal Quality (stddev on wavelength-1 trace) ---
