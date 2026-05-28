@@ -1,8 +1,13 @@
+import logging
 from typing import Optional
 
 from PySide6.QtCore import QObject, Signal, QTimer
 import pylsl
+
 import config
+
+
+logger = logging.getLogger(__name__)
 
 
 class LSLClient(QObject):
@@ -66,7 +71,7 @@ class LSLClient(QObject):
         try:
             streams = pylsl.resolve_byprop("type", config.STREAM_TYPE, timeout=2)
         except Exception as ex:
-            print(f"LSL Client: resolve_byprop failed: {ex}")
+            logger.exception("resolve_byprop failed: %s", ex)
             self.streams_found.emit([])
             return
         stream_infos = [(s.name(), s.source_id()) for s in streams]
@@ -76,7 +81,7 @@ class LSLClient(QObject):
         try:
             streams = pylsl.resolve_byprop("source_id", source_id, timeout=2)
         except Exception as ex:
-            print(f"LSL Client: resolve_byprop({source_id!r}) failed: {ex}")
+            logger.exception("resolve_byprop(%r) failed: %s", source_id, ex)
             self.disconnected.emit()
             return
 
@@ -87,7 +92,7 @@ class LSLClient(QObject):
         try:
             self.inlet = pylsl.StreamInlet(streams[0])
         except Exception as ex:
-            print(f"LSL Client: StreamInlet creation failed: {ex}")
+            logger.exception("StreamInlet creation failed: %s", ex)
             self.inlet = None
             self.disconnected.emit()
             return
@@ -97,7 +102,7 @@ class LSLClient(QObject):
         # would silently interpret whatever bytes arrive as OD values.
         reject_reason = self._validate_inlet_metadata()
         if reject_reason is not None:
-            print(f"LSL Client: rejecting stream: {reject_reason}")
+            logger.warning("Rejecting stream: %s", reject_reason)
             self._close_inlet_safely()
             self.connection_rejected.emit(reject_reason)
             self.disconnected.emit()
@@ -119,7 +124,7 @@ class LSLClient(QObject):
         self.processing_timer.stop()
         self.watchdog_timer.stop()
         if self._close_inlet_safely():
-            print("LSL Client: stream closed.")
+            logger.info("Stream closed.")
         self.disconnected.emit()
 
     def _close_inlet_safely(self) -> bool:
@@ -131,7 +136,7 @@ class LSLClient(QObject):
         try:
             inlet.close_stream()
         except Exception as ex:
-            print(f"LSL Client: close_stream failed (ignored): {ex}")
+            logger.warning("close_stream failed (ignored): %s", ex)
         return True
 
     # ---------- Metadata validation ----------
@@ -169,9 +174,9 @@ class LSLClient(QObject):
         try:
             self._log_channel_descriptors(info)
         except Exception as ex:
-            print(
-                f"LSL Client: could not enumerate channel descriptors "
-                f"({ex}); continuing with hardcoded layout."
+            logger.warning(
+                "Could not enumerate channel descriptors (%s); "
+                "continuing with hardcoded layout.", ex,
             )
 
         return None
@@ -188,14 +193,14 @@ class LSLClient(QObject):
             ch = ch.next_sibling()
 
         if not labels:
-            print("LSL Client: stream advertises no per-channel descriptors.")
+            logger.info("Stream advertises no per-channel descriptors.")
             return
 
-        print(f"LSL Client: stream advertises {len(labels)} channel descriptors.")
-        # Print at most the first 8 so the log stays readable; first 8 covers
+        logger.info("Stream advertises %d channel descriptors.", len(labels))
+        # Log at most the first 8 so the log stays readable; first 8 covers
         # one OctaMon receiver's worth of optodes.
         for i, (label, wl, t) in enumerate(labels[:8]):
-            print(f"  ch[{i}]: label={label!r} wavelength={wl!r} type={t!r}")
+            logger.info("  ch[%d]: label=%r wavelength=%r type=%r", i, label, wl, t)
 
     # ---------- Internal ----------
 
@@ -210,7 +215,7 @@ class LSLClient(QObject):
         except Exception as ex:
             # Inlet died under us. Let watchdog drive the disconnect path so
             # all the same cleanup happens in one place.
-            print(f"LSL Client: pull_chunk failed: {ex}")
+            logger.exception("pull_chunk failed: %s", ex)
             return
 
         if not samples:
@@ -227,12 +232,12 @@ class LSLClient(QObject):
             info = self.inlet.info()
             rate = info.nominal_srate()
         except Exception as ex:
-            print(f"LSL Client: nominal_srate() failed: {ex}")
+            logger.exception("nominal_srate() failed: %s", ex)
             return None
         if rate is None or rate <= 0:
             return None
         return float(rate)
 
     def _on_watchdog_timeout(self) -> None:
-        print("LSL Client: watchdog fired; stream considered dead.")
+        logger.warning("Watchdog fired; stream considered dead.")
         self.disconnect()

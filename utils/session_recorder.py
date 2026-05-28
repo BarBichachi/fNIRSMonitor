@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import datetime
@@ -8,6 +9,9 @@ import numpy as np
 import config
 from utils.recording_writer import RecordingWriter
 from utils.snirf_writer import write_snirf
+
+
+logger = logging.getLogger(__name__)
 
 
 # Event marker text used in TSV "Event" column and metadata when special things happen.
@@ -189,7 +193,7 @@ class SessionRecorder:
             self._snirf_hhb = []
             self._snirf_metadata = {}
         if snirf_path is not None:
-            print(f"SessionRecorder: SNIRF written to {snirf_path}")
+            logger.info("SNIRF written to %s", snirf_path)
 
     def _write_snirf_safely(self) -> Optional[str]:
         # Best-effort SNIRF emission. Never blocks stop() on failure; logs and
@@ -210,7 +214,7 @@ class SessionRecorder:
             )
             return snirf_path
         except Exception as ex:
-            print(f"SessionRecorder: SNIRF write failed ({ex}); TSV files intact.")
+            logger.exception("SNIRF write failed (%s); TSV files intact.", ex)
             return None
 
     def write_notes(self, notes_text: str) -> None:

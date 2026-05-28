@@ -27,8 +27,17 @@ def reload() -> None:
         overrides = _user_settings.load()
     except Exception as exc:
         # Bad settings.json should not crash the app; defaults remain in effect.
-        # Phase 8 will replace print() with proper logging.
-        print(f"config.reload: failed to load user settings ({exc}); using defaults.")
+        # Note: this can run before the logging system is initialised, so we
+        # fall back to stderr in that case. The main module wires logging up
+        # almost immediately after import.
+        import logging
+        _log = logging.getLogger(__name__)
+        if _log.hasHandlers() or logging.getLogger().hasHandlers():
+            _log.error("config.reload: failed to load user settings (%s); using defaults.", exc)
+        else:
+            import sys
+            print(f"config.reload: failed to load user settings ({exc}); using defaults.",
+                  file=sys.stderr)
         return
 
     for key, value in overrides.items():

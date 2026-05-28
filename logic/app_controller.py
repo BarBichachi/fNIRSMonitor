@@ -1,9 +1,13 @@
+import logging
 import time
 
 import numpy as np
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 import config
+
+
+logger = logging.getLogger(__name__)
 from logic.lsl_client import LSLClient
 from logic.data_processor import DataProcessor
 from utils.app_paths import default_recordings_dir
@@ -122,7 +126,7 @@ class AppController(QObject):
         self.alert_rules = rules
 
     def find_streams(self):
-        print("Controller: Requesting stream search...")
+        logger.info("Requesting stream search...")
         self.find_streams_requested.emit()
 
     def connect_to_stream(self, source_id):
@@ -197,7 +201,7 @@ class AppController(QObject):
         # Tolerance window expired without a reconnect. Close out the recording.
         self._reconnect_retry_timer.stop()
         if self.recorder.is_paused:
-            print("Controller: reconnect tolerance expired; stopping recording.")
+            logger.warning("Reconnect tolerance expired; stopping recording.")
             self.stop_recording()
         self.connected_source_id = None
         self._disconnect_time_ms = None
@@ -218,7 +222,7 @@ class AppController(QObject):
         # LSL client refused the stream because metadata didn't pass our
         # contract. Forward to the UI; the subsequent `disconnected` from the
         # client cleans up the rest.
-        print(f"Controller: connection rejected: {reason}")
+        logger.warning("Connection rejected: %s", reason)
         self.connection_error.emit(reason)
 
     # ---------- Sample processing ----------
@@ -264,7 +268,7 @@ class AppController(QObject):
         try:
             processed = self.data_processor.process_sample_od(sample, self.alert_rules)
         except Exception as ex:
-            print(f"Controller: processing failed: {ex}")
+            logger.exception("Processing failed: %s", ex)
             self._record_row(od32, None, None, adc, event, dropped=True, timestamp=timestamp)
             return
 
@@ -317,7 +321,7 @@ class AppController(QObject):
     # ---------- Recording control ----------
 
     def close(self):
-        print("Controller: Closing...")
+        logger.info("Closing...")
         # If the user closes the window mid-recording, treat that as a manual stop.
         self._user_initiated_disconnect = True
         self._pause_timer.stop()
@@ -326,7 +330,7 @@ class AppController(QObject):
         self.lsl_thread.msleep(50)
         self.lsl_thread.quit()
         if not self.lsl_thread.wait(3000):
-            print("Controller: LSL thread did not shut down gracefully. Terminating.")
+            logger.warning("LSL thread did not shut down gracefully; terminating.")
             self.lsl_thread.terminate()
 
     def set_auto_record_on_connect(self, enabled: bool, session_name: str = None):

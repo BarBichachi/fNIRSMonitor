@@ -59,10 +59,9 @@ EXPECTED_PHYSICAL_CHANNELS = 8
 WAVELENGTH_ORDER = ("850nm", "760nm")
 
 # Placeholder values that OxySoft emits for inactive optode pairs.
+# 4.81625 is log10(2^16 - 1), what OxySoft writes when a channel is saturated.
 PLACEHOLDER_HI = 4.81625
-PLACEHOLDER_LO = 0.02025
 PLACEHOLDER_EPS = 0.02
-PAIR_VARIANCE_THRESH = 1e-4  # minimum variance to consider a pair active
 
 # --- MBLL Calculation Constants ---
 # Extinction coefficients (mM^-1 cm^-1) from Matcher et al. 1995,

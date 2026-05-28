@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from typing import Optional
 
@@ -8,6 +9,9 @@ from logic.signal_filter import BandpassFilter
 from logic.load_detector import LoadDetector, ThresholdAsymmetryDetector
 from logic.signal_quality import SignalQualityEvaluator
 from utils.enums import CognitiveState
+
+
+logger = logging.getLogger(__name__)
 
 
 # Number of physical channels (post-mapping) and wavelengths per channel.
@@ -230,7 +234,7 @@ class DataProcessor:
                 order=int(getattr(config, "FILTER_ORDER", 4)),
             )
         except Exception as ex:
-            print(f"DataProcessor: filter init failed ({ex}); running unfiltered.")
+            logger.error("Filter init failed (%s); running unfiltered.", ex)
             self.filter = None
 
     # ---------- Alert ring buffer ----------

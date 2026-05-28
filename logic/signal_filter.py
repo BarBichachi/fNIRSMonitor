@@ -1,7 +1,11 @@
+import logging
 from typing import Optional
 
 import numpy as np
 from scipy.signal import butter, sosfilt
+
+
+logger = logging.getLogger(__name__)
 
 
 class BandpassFilter:
@@ -98,9 +102,9 @@ class BandpassFilter:
         low = max(self.low_hz, 1e-4)
 
         if high <= low or high <= 0:
-            print(
-                f"BandpassFilter: degenerate band (low={low}, high={high}, fs={fs}); "
-                f"running as pass-through."
+            logger.warning(
+                "Degenerate band (low=%s, high=%s, fs=%s); running as pass-through.",
+                low, high, fs,
             )
             self._sos = None
             self._zi = None
@@ -108,9 +112,9 @@ class BandpassFilter:
             return
 
         if high < self.high_hz:
-            print(
-                f"BandpassFilter: lowpass clamped from {self.high_hz} Hz to "
-                f"{high:.4f} Hz (fs={fs} Hz, Nyquist={nyquist} Hz)."
+            logger.warning(
+                "Lowpass clamped from %s Hz to %.4f Hz (fs=%s Hz, Nyquist=%s Hz).",
+                self.high_hz, high, fs, nyquist,
             )
 
         sos = butter(self.order, [low, high], btype="band", fs=fs, output="sos")

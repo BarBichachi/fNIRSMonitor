@@ -1,3 +1,4 @@
+import logging
 import time
 
 from PySide6.QtCore import QTimer
@@ -22,6 +23,9 @@ from utils.app_paths import default_recordings_dir, settings_file
 from utils.stylesheet import load_stylesheet
 from utils.enums import CognitiveState
 from config.user_settings import save as save_user_settings, load as load_user_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -239,7 +243,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         # Ensures the controller cleans up its resources when the app closes.
-        print("Main window: Close event triggered.")
+        logger.info("Close event triggered.")
         self.controller.close()
         event.accept()
 

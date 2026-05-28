@@ -1,7 +1,13 @@
+import logging
+import os
+
 from PySide6.QtCore import QUrl
 from PySide6.QtMultimedia import QSoundEffect
-import os
+
 import config
+
+
+logger = logging.getLogger(__name__)
 
 class SoundPlayer:
     # Handles loading and playing audible alert sounds.
@@ -22,7 +28,7 @@ class SoundPlayer:
             self.effects[name].setSource(QUrl.fromLocalFile(path))
             self.effects[name].setVolume(0.8)
         else:
-            print(f"Warning: Sound file not found at '{path}'. Sound will be silent.")
+            logger.warning("Sound file not found at %r; sound will be silent.", path)
 
     def play(self, sound_name):
         # Plays the sound corresponding to the given name ('alert' or 'nominal').
