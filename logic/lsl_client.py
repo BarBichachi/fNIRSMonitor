@@ -2,94 +2,147 @@ from PySide6.QtCore import QObject, Signal, QTimer
 import pylsl
 import config
 
+
 class LSLClient(QObject):
-    # This class handles all LSL communication and data processing using a non-blocking timer.
+    # LSL transport. Lives on a dedicated QThread (created by the controller).
+    # On each timer tick, pulls all available samples from the inlet via
+    # pull_chunk and emits them as a single chunk. Lossless by construction
+    # as long as the queue downstream (controller -> recorder) keeps up.
+
     streams_found = Signal(list)
     connected = Signal(str)
     disconnected = Signal()
+    # Payload: {'samples': [[...], [...]], 'timestamps': [t1, t2]}.
     new_data_ready = Signal(dict)
     sample_rate_detected = Signal(object)
+
+    # Maximum samples to pull per timer tick. A 50 Hz stream with a 20 ms tick
+    # produces ~1 sample/tick; 64 is generous headroom for transient backlog.
+    PULL_CHUNK_MAX = 64
+
+    # Watchdog: if no samples arrive in this many ms, treat the stream as dead.
+    WATCHDOG_MS = 5000
 
     def __init__(self):
         super().__init__()
         self.inlet = None
 
-        # --- Non-Blocking Timer ---
         self.processing_timer = QTimer(self)
-        self.processing_timer.setInterval(max(1, int(1000 // max(1.0, float(config.SAMPLE_RATE)))))
-        self.processing_timer.timeout.connect(self._pull_sample)
+        self.processing_timer.setInterval(self._tick_interval_ms(config.SAMPLE_RATE))
+        self.processing_timer.timeout.connect(self._pull_chunk)
 
-        # --- Watchdog Timer for Auto-Disconnect ---
         self.watchdog_timer = QTimer(self)
-        self.watchdog_timer.setInterval(5000) # 5 seconds
-        self.watchdog_timer.setSingleShot(True) # It will only fire once if not reset
-        self.watchdog_timer.timeout.connect(self.disconnect)
+        self.watchdog_timer.setInterval(self.WATCHDOG_MS)
+        self.watchdog_timer.setSingleShot(True)
+        self.watchdog_timer.timeout.connect(self._on_watchdog_timeout)
 
-    def find_streams(self):
-        # Finds all available LSL streams by configured stream type.
-        streams = pylsl.resolve_byprop('type', config.STREAM_TYPE, timeout=2)
+    @staticmethod
+    def _tick_interval_ms(rate_hz) -> int:
+        # Tick once per nominal sample period. Faster ticks pull empty chunks
+        # cheaply; slower ticks just add latency. Floor at 1 ms.
+        try:
+            rate = float(rate_hz) if rate_hz else 0.0
+        except (TypeError, ValueError):
+            rate = 0.0
+        if rate <= 0:
+            return 50  # 20 Hz fallback when nothing is known yet
+        return max(1, int(round(1000.0 / rate)))
+
+    # ---------- Slots invoked from controller via queued signals ----------
+
+    def find_streams(self) -> None:
+        try:
+            streams = pylsl.resolve_byprop("type", config.STREAM_TYPE, timeout=2)
+        except Exception as ex:
+            print(f"LSL Client: resolve_byprop failed: {ex}")
+            self.streams_found.emit([])
+            return
         stream_infos = [(s.name(), s.source_id()) for s in streams]
         self.streams_found.emit(stream_infos)
 
-    def connect_to_stream(self, source_id):
-        # Connects to a specific stream using its unique source_id
-        streams = pylsl.resolve_byprop('source_id', source_id, timeout=2)
-        if streams:
-            self.inlet = pylsl.StreamInlet(streams[0])
-            self.connected.emit(streams[0].name())
-            rate = self.get_nominal_sample_rate()
-            self.sample_rate_detected.emit(rate)
-
-            # Sync pull cadence to detected stream rate immediately.
-            if rate:
-                interval_ms = max(1, int(1000 // rate))
-                self.processing_timer.setInterval(interval_ms)
-
-            self.processing_timer.start()
-            self.watchdog_timer.start()
-        else:
+    def connect_to_stream(self, source_id: str) -> None:
+        try:
+            streams = pylsl.resolve_byprop("source_id", source_id, timeout=2)
+        except Exception as ex:
+            print(f"LSL Client: resolve_byprop({source_id!r}) failed: {ex}")
             self.disconnected.emit()
-
-    def _pull_sample(self):
-        # This method is called repeatedly by the QTimer to get raw data
-        if not self.inlet:
             return
 
-        # Pull a sample without blocking the thread for long
-        sample, timestamp = self.inlet.pull_sample(timeout=0.0)
-        if sample is None:
+        if not streams:
+            self.disconnected.emit()
             return
 
-        # Drain a small backlog and keep the latest sample to reduce latency.
-        for _ in range(4):
-            s2, t2 = self.inlet.pull_sample(timeout=0.0)
-            if s2 is None:
-                break
-            sample, timestamp = s2, t2
+        try:
+            self.inlet = pylsl.StreamInlet(streams[0])
+        except Exception as ex:
+            print(f"LSL Client: StreamInlet creation failed: {ex}")
+            self.inlet = None
+            self.disconnected.emit()
+            return
 
+        rate = self._get_nominal_sample_rate()
+        self.connected.emit(streams[0].name())
+        self.sample_rate_detected.emit(rate)
+
+        # Sync pull cadence to detected stream rate immediately.
+        if rate:
+            self.processing_timer.setInterval(self._tick_interval_ms(rate))
+
+        self.processing_timer.start()
         self.watchdog_timer.start()
-        self.new_data_ready.emit({'raw': sample, 'timestamp': timestamp})
 
-    def get_nominal_sample_rate(self):
-        # Return the nominal LSL sample rate of the connected stream, or None
-        if self.inlet is None:
-            return None
-
-        info = self.inlet.info()
-        rate = info.nominal_srate()
-
-        if rate is None or rate <= 0:
-            return None
-
-        return float(rate)
-
-    def disconnect(self):
-        # Stops the timer and disconnects from the stream
+    def disconnect(self) -> None:
+        # Idempotent: safe to call from watchdog and from explicit user action.
         self.processing_timer.stop()
         self.watchdog_timer.stop()
+
         inlet = self.inlet
         self.inlet = None
-        if inlet:
-            print("LSL Client: Watchdog timed out or disconnect called. Closing stream.")
-            inlet.close_stream()
+        if inlet is not None:
+            try:
+                inlet.close_stream()
+            except Exception as ex:
+                print(f"LSL Client: close_stream failed (ignored): {ex}")
+            print("LSL Client: stream closed.")
+
         self.disconnected.emit()
+
+    # ---------- Internal ----------
+
+    def _pull_chunk(self) -> None:
+        if self.inlet is None:
+            return
+
+        try:
+            samples, timestamps = self.inlet.pull_chunk(
+                timeout=0.0, max_samples=self.PULL_CHUNK_MAX
+            )
+        except Exception as ex:
+            # Inlet died under us. Let watchdog drive the disconnect path so
+            # all the same cleanup happens in one place.
+            print(f"LSL Client: pull_chunk failed: {ex}")
+            return
+
+        if not samples:
+            return
+
+        # Successful read resets the watchdog.
+        self.watchdog_timer.start()
+        self.new_data_ready.emit({"samples": samples, "timestamps": timestamps})
+
+    def _get_nominal_sample_rate(self):
+        if self.inlet is None:
+            return None
+        try:
+            info = self.inlet.info()
+            rate = info.nominal_srate()
+        except Exception as ex:
+            print(f"LSL Client: nominal_srate() failed: {ex}")
+            return None
+        if rate is None or rate <= 0:
+            return None
+        return float(rate)
+
+    def _on_watchdog_timeout(self) -> None:
+        print("LSL Client: watchdog fired; stream considered dead.")
+        self.disconnect()

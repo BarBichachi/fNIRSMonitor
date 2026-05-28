@@ -26,19 +26,25 @@ def split_name_and_index(text: str) -> tuple[str, int | None]:
 
 
 def get_next_index_for_prefix(recordings_root: str, prefix: str) -> int:
-    # Scans today's folder for existing files with the given prefix
+    # Scans today's folder for existing recordings with the given prefix.
+    # Recognizes both the post-Phase-1 layout (per-recording folder named
+    # HH-MM-SS_<prefix>_NN) and the legacy flat-file layout (used before the
+    # per-recording folder split).
     folder = get_today_recordings_folder(recordings_root)
     safe_prefix = re.escape(prefix)
 
-    # Matches: dd-mm-yyyy_HH-MM-SS_<prefix>_01_RawOD.txt
-    pattern = re.compile(rf"_{safe_prefix}_(\d+)_RawOD\.txt$", re.IGNORECASE)
+    folder_pattern = re.compile(rf"^\d{{2}}-\d{{2}}-\d{{2}}_{safe_prefix}_(\d+)$", re.IGNORECASE)
+    legacy_file_pattern = re.compile(rf"_{safe_prefix}_(\d+)_RawOD\.txt$", re.IGNORECASE)
 
     max_idx = 0
     for name in os.listdir(folder):
-        if not name.lower().endswith("_rawod.txt"):
-            continue
+        full = os.path.join(folder, name)
 
-        match = pattern.search(name)
+        if os.path.isdir(full):
+            match = folder_pattern.match(name)
+        else:
+            match = legacy_file_pattern.search(name) if name.lower().endswith("_rawod.txt") else None
+
         if match:
             idx = int(match.group(1))
             if idx > max_idx:
