@@ -51,6 +51,11 @@ class ConnectionBar(QWidget):
 
         layout.addStretch(1)
 
+        # --- Settings (gear) ---
+        self.settings_button = QPushButton("Settings")
+        self.settings_button.setObjectName("HeaderButton")
+        layout.addWidget(self.settings_button)
+
         # --- Recording Section ---
         self.open_recordings_button = QPushButton("Open Recording Folder")
         self.open_recordings_button.setObjectName("HeaderButton")

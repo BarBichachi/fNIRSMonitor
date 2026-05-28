@@ -1,11 +1,15 @@
 # views/widgets/control_sidebar.py
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QGridLayout, QLabel, QHBoxLayout
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QGridLayout, QLabel, QHBoxLayout, QPushButton
+from PySide6.QtCore import Qt, Signal
 import config
 
 class ControlSidebar(QWidget):
-    # A widget for the left sidebar, handling channel selection and signal quality.
+    # Left sidebar: plot legend, sample-rate readout, acquisition parameters
+    # (DPF/distance) with an Edit shortcut, and per-channel signal quality dots.
+
+    edit_acquisition_requested = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(220)
@@ -15,6 +19,9 @@ class ControlSidebar(QWidget):
 
         # labels for sample-rate info (stream + processing)
         self.stream_rate_value_label = None
+        # Acquisition card labels for refresh after settings reload.
+        self._dpf_value_label = None
+        self._distance_value_label = None
 
         self._init_ui()
 
@@ -66,6 +73,29 @@ class ControlSidebar(QWidget):
 
         rate_group.setLayout(rate_layout)
         layout.addWidget(rate_group)
+
+        # --- Acquisition card (DPF + interoptode distance) ---
+        # Always visible so the operator knows exactly what's being applied to
+        # the data. "Edit" opens the Settings dialog; disabled mid-recording.
+        acq_group = QGroupBox("Acquisition")
+        acq_group.setObjectName("CardGroupBox")
+        acq_layout = QVBoxLayout()
+        acq_layout.setSpacing(4)
+        acq_layout.addSpacing(10)
+
+        self._dpf_value_label = QLabel()
+        self._distance_value_label = QLabel()
+        self._refresh_acquisition_labels()
+        acq_layout.addWidget(self._dpf_value_label)
+        acq_layout.addWidget(self._distance_value_label)
+
+        edit_btn = QPushButton("Edit...")
+        edit_btn.setObjectName("HeaderButton")
+        edit_btn.clicked.connect(self.edit_acquisition_requested)
+        acq_layout.addWidget(edit_btn)
+
+        acq_group.setLayout(acq_layout)
+        layout.addWidget(acq_group)
 
         # --- Signal Quality card ---
         quality_group = QGroupBox("Signal Quality")
@@ -138,3 +168,15 @@ class ControlSidebar(QWidget):
             dot.setProperty("state", "red")
             dot.style().unpolish(dot)
             dot.style().polish(dot)
+
+    def refresh_acquisition_labels(self) -> None:
+        # Called by MainWindow after the Settings dialog applies new values.
+        self._refresh_acquisition_labels()
+
+    def _refresh_acquisition_labels(self) -> None:
+        if self._dpf_value_label is not None:
+            self._dpf_value_label.setText(f"DPF: {float(config.DPF):.2f}")
+        if self._distance_value_label is not None:
+            self._distance_value_label.setText(
+                f"Distance: {float(config.INTEROPTODE_DISTANCE):.2f} cm"
+            )

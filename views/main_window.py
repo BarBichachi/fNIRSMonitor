@@ -1,7 +1,14 @@
 import time
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QApplication
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QWidget,
+)
 import config
 
 from views.widgets.connection_bar import ConnectionBar
@@ -9,9 +16,12 @@ from views.widgets.control_sidebar import ControlSidebar
 from views.widgets.alert_sidebar import AlertSidebar
 from views.widgets.plot_widget import PlotWidget
 from views.dialogs.recording_notes_dialog import *
+from views.dialogs.settings_dialog import SettingsDialog
 from logic.app_controller import AppController
+from utils.app_paths import default_recordings_dir, settings_file
 from utils.stylesheet import load_stylesheet
 from utils.enums import CognitiveState
+from config.user_settings import save as save_user_settings, load as load_user_settings
 
 
 class MainWindow(QMainWindow):
@@ -37,6 +47,9 @@ class MainWindow(QMainWindow):
         self._init_calibration_poll_timer()
         self._connect_signals()
         self._on_auto_naming_toggled(True)
+
+        # First-run: prompt for the recordings folder once.
+        self._maybe_run_first_run_setup()
 
         # --- Set initial UI state ---
         self._set_analysis_controls_enabled(False) # Disable controls on startup
@@ -96,6 +109,8 @@ class MainWindow(QMainWindow):
         self.connection_bar.refresh_button.clicked.connect(self._handle_refresh_clicked)
         self.connection_bar.connect_button.clicked.connect(self._toggle_connection)
         self.connection_bar.open_recordings_button.clicked.connect(self._on_open_recordings_folder_clicked)
+        self.connection_bar.settings_button.clicked.connect(self._on_settings_clicked)
+        self.control_sidebar.edit_acquisition_requested.connect(self._on_settings_clicked)
         self.connection_bar.auto_naming_checkbox.toggled.connect(self._on_auto_naming_toggled)
         self.connection_bar.record_button.toggled.connect(self._on_record_toggled)
         self.connection_bar.auto_record_checkbox.toggled.connect(self._on_auto_record_toggled)
@@ -142,6 +157,11 @@ class MainWindow(QMainWindow):
             stream_id = self.connection_bar.stream_dropdown.currentData()
             if not stream_id:
                 return
+            # Show in-flight UI: disable button, show indicator. Restored by
+            # _update_connection_status whether connect succeeds or fails.
+            self.connection_bar.connect_button.setEnabled(False)
+            self.connection_bar.search_indicator_label.setText("Connecting...")
+            self.connection_bar.search_indicator_label.show()
             self.controller.connect_to_stream(stream_id)
         else:
             self.controller.disconnect_from_stream()
@@ -163,6 +183,11 @@ class MainWindow(QMainWindow):
 
     def _update_connection_status(self, is_connected):
         # Updates the UI elements to reflect the current connection status.
+        # Either way the in-flight Connect spinner gets cleared here.
+        self.connection_bar.connect_button.setEnabled(True)
+        self.connection_bar.search_indicator_label.setText("Searching...")
+        self.connection_bar.search_indicator_label.hide()
+
         if is_connected:
             self.connection_bar.connect_button.setText("Disconnect")
             self.connection_bar.set_status_connected(True)
@@ -356,6 +381,43 @@ class MainWindow(QMainWindow):
     def _refresh_calibration_status(self):
         status = self.controller.get_load_detector_status()
         self.alert_sidebar.update_calibration_status(status)
+
+    def _on_settings_clicked(self):
+        is_recording = self.controller.recorder.is_recording
+        dlg = SettingsDialog(is_recording=is_recording, parent=self)
+        if dlg.exec() == SettingsDialog.DialogCode.Accepted:
+            try:
+                self.controller.reload_settings()
+            except Exception as ex:
+                QMessageBox.critical(self, "Settings", f"Reload failed:\n{ex}")
+                return
+            self.control_sidebar.refresh_acquisition_labels()
+
+    def _maybe_run_first_run_setup(self):
+        # On first launch we have no settings.json, so RECORDINGS_ROOT is None
+        # and the platform default applies silently. Ask the user once whether
+        # they want to override before any recording happens.
+        # Tests and headless smoke runs set FNIRS_SKIP_FIRST_RUN=1 to bypass.
+        import os
+        if os.environ.get("FNIRS_SKIP_FIRST_RUN"):
+            return
+        if settings_file().exists():
+            return
+        suggested = str(default_recordings_dir())
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Choose recordings folder",
+            suggested,
+            options=QFileDialog.Option.ShowDirsOnly,
+        )
+        # If the user cancelled, persist nothing; defaults stay in effect.
+        if not chosen or chosen == suggested:
+            return
+        try:
+            save_user_settings({"RECORDINGS_ROOT": chosen})
+            self.controller.reload_settings()
+        except Exception as ex:
+            QMessageBox.warning(self, "Settings", f"Could not save folder choice:\n{ex}")
 
     def _on_auto_naming_toggled(self, checked: bool):
         # Updates the session name if auto-naming is enabled

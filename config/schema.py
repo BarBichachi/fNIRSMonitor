@@ -35,14 +35,6 @@ def _validate_distance(value: Any) -> float:
     return value
 
 
-@_register("RECORDINGS_ROOT")
-def _validate_recordings_root(value: Any) -> str:
-    value = str(value)
-    if not value.strip():
-        raise SettingsValidationError("RECORDINGS_ROOT must be a non-empty path")
-    return value
-
-
 @_register("EXTINCTION_COEFFICIENTS")
 def _validate_coefficients(value: Any) -> dict:
     if not isinstance(value, dict):
@@ -168,6 +160,87 @@ def _validate_quality_hr_snr_threshold(value: Any) -> float:
         raise SettingsValidationError(
             f"QUALITY_HR_SNR_THRESHOLD must be in [1.0, 100.0], got {value}"
         )
+    return value
+
+
+@_register("RECONNECT_TOLERANCE_S")
+def _validate_reconnect_tolerance_s(value: Any) -> float:
+    value = float(value)
+    if not (0.5 <= value <= 60.0):
+        raise SettingsValidationError(
+            f"RECONNECT_TOLERANCE_S must be in [0.5, 60.0], got {value}"
+        )
+    return value
+
+
+@_register("SOUND_NOMINAL_SUPPRESS_S")
+def _validate_sound_nominal_suppress_s(value: Any) -> float:
+    value = float(value)
+    if not (0.0 <= value <= 60.0):
+        raise SettingsValidationError(
+            f"SOUND_NOMINAL_SUPPRESS_S must be in [0.0, 60.0], got {value}"
+        )
+    return value
+
+
+@_register("LOAD_DETECTOR_REST_WINDOW_S")
+def _validate_load_detector_rest_window_s(value: Any) -> float:
+    value = float(value)
+    if not (10.0 <= value <= 600.0):
+        raise SettingsValidationError(
+            f"LOAD_DETECTOR_REST_WINDOW_S must be in [10.0, 600.0], got {value}"
+        )
+    return value
+
+
+@_register("LOAD_DETECTOR_ACTIVE_WINDOW_S")
+def _validate_load_detector_active_window_s(value: Any) -> float:
+    value = float(value)
+    if not (1.0 <= value <= 300.0):
+        raise SettingsValidationError(
+            f"LOAD_DETECTOR_ACTIVE_WINDOW_S must be in [1.0, 300.0], got {value}"
+        )
+    return value
+
+
+@_register("LOAD_DETECTOR_K_SD")
+def _validate_load_detector_k_sd(value: Any) -> float:
+    value = float(value)
+    if not (0.1 <= value <= 10.0):
+        raise SettingsValidationError(
+            f"LOAD_DETECTOR_K_SD must be in [0.1, 10.0], got {value}"
+        )
+    return value
+
+
+@_register("LOAD_DETECTOR_MIN_ELEVATED_CHANNELS")
+def _validate_load_detector_min_elevated_channels(value: Any) -> int:
+    value = int(value)
+    if not (1 <= value <= 4):
+        raise SettingsValidationError(
+            f"LOAD_DETECTOR_MIN_ELEVATED_CHANNELS must be in [1, 4], got {value}"
+        )
+    return value
+
+
+@_register("LOAD_DETECTOR_HHB_TOL_UM")
+def _validate_load_detector_hhb_tol_um(value: Any) -> float:
+    value = float(value)
+    if not (0.0 <= value <= 10.0):
+        raise SettingsValidationError(
+            f"LOAD_DETECTOR_HHB_TOL_UM must be in [0.0, 10.0], got {value}"
+        )
+    return value
+
+
+@_register("RECORDINGS_ROOT")
+def _validate_recordings_root(value: Any) -> str:
+    # None = use platform default. Otherwise non-empty string path.
+    if value is None:
+        return None
+    value = str(value)
+    if not value.strip():
+        raise SettingsValidationError("RECORDINGS_ROOT must be a non-empty path")
     return value
 
 

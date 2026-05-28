@@ -61,8 +61,15 @@ class DataProcessor:
         # Pluggable cognitive-load detector. Default is the Phase A threshold
         # + asymmetry + HHb-gate detector. Pre-calibration it returns NOMINAL;
         # callers should drive a "Calibrate Subject" UI before trusting alerts.
+        # Tuning lives in config (LOAD_DETECTOR_*) so the Settings dialog can
+        # adjust it without code edits.
         self.load_detector: LoadDetector = ThresholdAsymmetryDetector(
-            sample_rate=self.sample_rate
+            sample_rate=self.sample_rate,
+            rest_window_s=float(getattr(config, "LOAD_DETECTOR_REST_WINDOW_S", 60.0)),
+            active_window_s=float(getattr(config, "LOAD_DETECTOR_ACTIVE_WINDOW_S", 30.0)),
+            k_sd=float(getattr(config, "LOAD_DETECTOR_K_SD", 1.5)),
+            min_elevated_channels=int(getattr(config, "LOAD_DETECTOR_MIN_ELEVATED_CHANNELS", 2)),
+            hhb_tol_um=float(getattr(config, "LOAD_DETECTOR_HHB_TOL_UM", 0.5)),
         )
 
         # Per-channel signal quality: std / CV / heartbeat detection on the

@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, QThread, QTimer, Signal
 import config
 from logic.lsl_client import LSLClient
 from logic.data_processor import DataProcessor
+from utils.app_paths import default_recordings_dir
 from utils.sound_player import SoundPlayer
 from utils.enums import CognitiveState
 from utils.session_recorder import SessionRecorder
@@ -18,9 +19,10 @@ from utils.session_naming import (
 from utils.os_helpers import open_folder
 
 
-# Reconnect tolerance: if the stream drops and comes back within this many ms,
-# the in-flight recording is resumed in-place rather than closed.
-RECONNECT_TOLERANCE_MS = 5000
+def _resolve_recordings_root() -> str:
+    # Reads config.RECORDINGS_ROOT (overridable via settings.json) and falls
+    # back to the per-user default location when not set.
+    return config.RECORDINGS_ROOT or str(default_recordings_dir())
 
 
 class AppController(QObject):
@@ -56,7 +58,7 @@ class AppController(QObject):
 
         self.detected_stream_rate = None
 
-        self.recorder = SessionRecorder()
+        self.recorder = SessionRecorder(recordings_root=_resolve_recordings_root())
 
         self.connected_stream_name = None
         self.connected_source_id = None
@@ -68,12 +70,28 @@ class AppController(QObject):
         # disconnect so we can decide whether to pause-and-wait or stop fully.
         self._user_initiated_disconnect = False
 
-        # Tolerance timer that fires if the stream does not come back in time.
+        # Reconnect tolerance is settings-driven (config.RECONNECT_TOLERANCE_S).
+        tolerance_ms = int(float(config.RECONNECT_TOLERANCE_S) * 1000)
         self._pause_timer = QTimer(self)
         self._pause_timer.setSingleShot(True)
-        self._pause_timer.setInterval(RECONNECT_TOLERANCE_MS)
+        self._pause_timer.setInterval(tolerance_ms)
         self._pause_timer.timeout.connect(self._on_pause_timeout)
         self._disconnect_time_ms = None
+
+        # Sound debounce state. Stops the "nominal" sound from spamming when
+        # the alert state oscillates around threshold.
+        self._last_nominal_play_ms = 0
+        self._sound_nominal_suppress_ms = int(
+            float(config.SOUND_NOMINAL_SUPPRESS_S) * 1000
+        )
+
+        # Auto-reconnect: while the recording is paused within the tolerance
+        # window, retry connecting to the same source once per second. If the
+        # device comes back, _on_connected resumes; otherwise _on_pause_timeout
+        # closes the recording out.
+        self._reconnect_retry_timer = QTimer(self)
+        self._reconnect_retry_timer.setInterval(1000)
+        self._reconnect_retry_timer.timeout.connect(self._try_auto_reconnect)
 
         # --- Connect controller request signals to client slots ---
         self.find_streams_requested.connect(self.lsl_client.find_streams)
@@ -131,6 +149,7 @@ class AppController(QObject):
         # a new file.
         if self.recorder.can_resume(stream_info):
             self._pause_timer.stop()
+            self._reconnect_retry_timer.stop()
             gap_ms = self._compute_gap_ms()
             self.recorder.resume(gap_ms)
             self._disconnect_time_ms = None
@@ -168,16 +187,32 @@ class AppController(QObject):
             self.recorder.pause()
             self._disconnect_time_ms = self._now_ms()
             self._pause_timer.start()
+            # Begin retrying connection to the same source.
+            if self.connected_source_id:
+                self._reconnect_retry_timer.start()
 
         self.connection_status.emit(False)
 
     def _on_pause_timeout(self):
         # Tolerance window expired without a reconnect. Close out the recording.
+        self._reconnect_retry_timer.stop()
         if self.recorder.is_paused:
             print("Controller: reconnect tolerance expired; stopping recording.")
             self.stop_recording()
         self.connected_source_id = None
         self._disconnect_time_ms = None
+
+    def _try_auto_reconnect(self):
+        # Fires every 1 s while the recording is paused. Asks the LSL client
+        # to attempt a fresh connect to the original source. On success, the
+        # normal _on_connected path notices can_resume() and resumes in place.
+        if not self.recorder.is_paused or not self.connected_source_id:
+            self._reconnect_retry_timer.stop()
+            return
+        if self.is_connected:
+            self._reconnect_retry_timer.stop()
+            return
+        self.connect_requested.emit(self.connected_source_id)
 
     def _on_connection_rejected(self, reason: str) -> None:
         # LSL client refused the stream because metadata didn't pass our
@@ -262,7 +297,10 @@ class AppController(QObject):
                 prev_state == CognitiveState.LOAD
                 and current_state == CognitiveState.NOMINAL
             ):
-                self.sound_player.play("nominal")
+                now_ms = self._now_ms()
+                if now_ms - self._last_nominal_play_ms >= self._sound_nominal_suppress_ms:
+                    self.sound_player.play("nominal")
+                    self._last_nominal_play_ms = now_ms
             # Other transitions (NOMINAL <-> WARMING_UP / CALIBRATING) stay silent.
 
     def _record_row(self, od32, o2hb, hhb, adc, event, dropped):
@@ -358,6 +396,39 @@ class AppController(QObject):
             "progress": det.calibration_progress,
             "baseline_summary": det.baseline_summary,
         }
+
+    # ---------- Settings ----------
+
+    def reload_settings(self) -> None:
+        # Phase 6 Settings dialog calls this after writing settings.json.
+        # Re-applies anything that takes effect without an app restart.
+        # DPF/INTEROPTODE/EXTINCTION_COEFFICIENTS changes must not happen
+        # mid-recording; the dialog enforces that, this method assumes it.
+        config.reload()
+
+        # Reconnect tolerance + sound debounce window.
+        self._pause_timer.setInterval(int(float(config.RECONNECT_TOLERANCE_S) * 1000))
+        self._sound_nominal_suppress_ms = int(
+            float(config.SOUND_NOMINAL_SUPPRESS_S) * 1000
+        )
+
+        # Filter coefficients (Phase 3) and load detector tuning (Phase 4)
+        # take effect on the next sample.
+        self.data_processor.rebuild_filter()
+        det = self.data_processor.load_detector
+        det.rest_window_s = float(config.LOAD_DETECTOR_REST_WINDOW_S)
+        det.active_window_s = float(config.LOAD_DETECTOR_ACTIVE_WINDOW_S)
+        det.k_sd = float(config.LOAD_DETECTOR_K_SD)
+        det.min_elevated_channels = int(config.LOAD_DETECTOR_MIN_ELEVATED_CHANNELS)
+        det.hhb_tol_um = float(config.LOAD_DETECTOR_HHB_TOL_UM)
+        # active_window_s change requires a resize of the rolling window.
+        det.set_sample_rate(det.sample_rate)
+
+        # MBLL coefficient changes need a fresh inverse-extinction matrix.
+        self.data_processor._init_mbll_constants()
+
+        # Recordings root: only updates the recorder for future recordings.
+        self.recorder.recordings_root = _resolve_recordings_root()
 
     # ---------- Helpers ----------
 

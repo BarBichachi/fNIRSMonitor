@@ -17,11 +17,32 @@ WINDOW_HEIGHT = 800
 # is detected. After connect, the detected stream rate takes over.
 SAMPLE_RATE = 10
 
-# --- Calibration Configuration ---
-CALIBRATION_DURATION = 10  # seconds
+# --- Recording Configuration ---
+# RECORDINGS_ROOT overrides the default Documents/fNIRS Monitor/Recordings
+# path. None = use platform default (resolved via app_paths.default_recordings_dir).
+RECORDINGS_ROOT = None
+
+# --- Reconnect Behavior ---
+# How long to hold a paused recording open after a stream drop before giving
+# up. During this window the controller also retries find_streams once per
+# second so a returning device resumes the same files automatically.
+RECONNECT_TOLERANCE_S = 5.0
 
 # --- Alerting Configuration ---
-ALERT_HISTORY_SECONDS = 10  # seconds
+ALERT_HISTORY_SECONDS = 10  # seconds (legacy ring buffer; Phase 4 detector ignores this)
+
+# Suppress the "nominal" alert sound for this many seconds after one fires.
+# Prevents oscillation when the alert state flips repeatedly around threshold.
+SOUND_NOMINAL_SUPPRESS_S = 5.0
+
+# --- Load Detector Configuration (Phase 4) ---
+# Threshold + asymmetry detector knobs. k_sd controls how far above baseline
+# (in standard deviations) a channel must rise to count as elevated.
+LOAD_DETECTOR_REST_WINDOW_S = 60.0
+LOAD_DETECTOR_ACTIVE_WINDOW_S = 30.0
+LOAD_DETECTOR_K_SD = 1.5
+LOAD_DETECTOR_MIN_ELEVATED_CHANNELS = 2
+LOAD_DETECTOR_HHB_TOL_UM = 0.5
 
 # --- Sound Asset Paths ---
 ALERT_SOUND_PATH = resource("assets/cognitive_load_detected.wav")
