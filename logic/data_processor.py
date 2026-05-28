@@ -5,6 +5,7 @@ import numpy as np
 
 import config
 from logic.signal_filter import BandpassFilter
+from logic.load_detector import LoadDetector, ThresholdAsymmetryDetector
 from utils.enums import CognitiveState
 
 
@@ -56,6 +57,13 @@ class DataProcessor:
         self.filter: Optional[BandpassFilter] = None
         self._init_filter()
 
+        # Pluggable cognitive-load detector. Default is the Phase A threshold
+        # + asymmetry + HHb-gate detector. Pre-calibration it returns NOMINAL;
+        # callers should drive a "Calibrate Subject" UI before trusting alerts.
+        self.load_detector: LoadDetector = ThresholdAsymmetryDetector(
+            sample_rate=self.sample_rate
+        )
+
     # ---------- Lifecycle ----------
 
     def reset(self):
@@ -69,6 +77,7 @@ class DataProcessor:
         self._od_history.clear()
         if self.filter is not None:
             self.filter.reset()
+        self.load_detector.reset()
 
     def set_sample_rate(self, hz: float):
         # Updates internal sample-rate-dependent buffer sizes and rebuilds
@@ -94,6 +103,9 @@ class DataProcessor:
         # Rebuild filter at the new rate. Resets channel state implicitly.
         if self.filter is not None:
             self.filter.set_sample_rate(hz)
+
+        # Detector window sizes are sample-rate dependent.
+        self.load_detector.set_sample_rate(hz)
 
     def rebuild_filter(self) -> None:
         # Re-reads config.FILTER_* and instantiates a fresh filter. Phase 6
@@ -307,9 +319,11 @@ class DataProcessor:
 
         quality = self._calculate_signal_quality(adc_value=adc_value, mapped_od=mapped_od)
 
-        thresh = alert_rules.get("threshold", 4.0)
-        dur = alert_rules.get("duration", 3)
-        alert_state = self.check_for_alert(o2hb_filt, thresh, dur)
+        # The cognitive-load detector consumes filtered values and current
+        # quality. alert_rules (threshold/duration) is from the legacy UI
+        # spinboxes; the new detector ignores it. Phase 6 will replace those
+        # spinboxes with calibration + k_sd controls.
+        alert_state = self.load_detector.update(o2hb_filt, hhb_filt, quality)
 
         return {
             "O2Hb": o2hb_filt.tolist(),

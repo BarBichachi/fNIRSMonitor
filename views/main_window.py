@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
         self._init_plot_timer()
         self._init_record_timer()
         self._init_record_flash_timer()
+        self._init_calibration_poll_timer()
         self._connect_signals()
         self._on_auto_naming_toggled(True)
 
@@ -80,6 +81,16 @@ class MainWindow(QMainWindow):
         self.plot_update_timer.setInterval(16) # ~60 FPS
         self.plot_update_timer.timeout.connect(self._update_plot)
 
+    def _init_calibration_poll_timer(self):
+        # Polls the load detector's calibration progress at a slow cadence so
+        # the sidebar can show "Calibrating: X%" without the controller having
+        # to emit a signal on every sample. Always running is fine; it's a
+        # cheap getter behind the scenes.
+        self.calibration_poll_timer = QTimer(self)
+        self.calibration_poll_timer.setInterval(250)
+        self.calibration_poll_timer.timeout.connect(self._refresh_calibration_status)
+        self.calibration_poll_timer.start()
+
     def _connect_signals(self):
         # Connects UI actions to the controller and controller signals to UI updates
         self.connection_bar.refresh_button.clicked.connect(self._handle_refresh_clicked)
@@ -101,6 +112,9 @@ class MainWindow(QMainWindow):
         # Connect Alert Rule UI to Controller
         self.alert_sidebar.threshold_spinbox.valueChanged.connect(self._update_controller_rules)
         self.alert_sidebar.duration_spinbox.valueChanged.connect(self._update_controller_rules)
+
+        # Per-subject load-detector calibration trigger.
+        self.alert_sidebar.calibrate_clicked.connect(self._on_calibrate_clicked)
 
     def _update_controller_rules(self):
         # Sends the current alert rule values from the UI to the controller.
@@ -333,6 +347,15 @@ class MainWindow(QMainWindow):
     def _on_open_recordings_folder_clicked(self):
         # Tells controller to open today's recordings folder
         self.controller.open_today_recordings_folder()
+
+    def _on_calibrate_clicked(self):
+        # Asks the controller to begin per-subject baseline acquisition for
+        # the load detector. The button state is driven by the poll timer.
+        self.controller.start_load_calibration()
+
+    def _refresh_calibration_status(self):
+        status = self.controller.get_load_detector_status()
+        self.alert_sidebar.update_calibration_status(status)
 
     def _on_auto_naming_toggled(self, checked: bool):
         # Updates the session name if auto-naming is enabled

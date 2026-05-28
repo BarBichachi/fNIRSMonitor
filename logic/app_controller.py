@@ -338,6 +338,27 @@ class AppController(QObject):
         # window of OD samples.
         return self.data_processor.recompute_baseline_from_window()
 
+    # ---------- Load detector ----------
+
+    def start_load_calibration(self) -> bool:
+        # Begins the per-subject baseline acquisition. Returns False if we
+        # are not currently streaming (no data to calibrate against).
+        if not self.is_connected:
+            return False
+        self.data_processor.load_detector.start_calibration()
+        return True
+
+    def get_load_detector_status(self) -> dict:
+        # Lightweight snapshot for the UI to poll: progress, calibrated flag,
+        # baseline summary (None until the first calibration completes).
+        det = self.data_processor.load_detector
+        return {
+            "is_calibrating": det.is_calibrating,
+            "is_calibrated": det.is_calibrated,
+            "progress": det.calibration_progress,
+            "baseline_summary": det.baseline_summary,
+        }
+
     # ---------- Helpers ----------
 
     def _current_stream_info(self) -> dict:
