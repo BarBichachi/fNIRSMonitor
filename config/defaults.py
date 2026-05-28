@@ -66,8 +66,20 @@ EXTINCTION_COEFFICIENTS = {
     "850nm": {"O2Hb": 1.058, "HHb": 0.781},
 }
 
-# --- Signal Quality (stddev on wavelength-1 trace) ---
-QUALITY_STD_LOWER = 0.005  # std below this -> 'red', else 'green'
+# --- Signal Quality ---
+# Per-channel evaluator runs three independent checks on the 850 nm OD trace
+# over a rolling QUALITY_WINDOW_S seconds. Each check yields one point;
+# 3 = green, 2 = yellow, <=1 = red.
+#   - std must exceed QUALITY_STD_LOWER (rejects flat-lined / disconnected channels)
+#   - coefficient of variation must be below QUALITY_CV_UPPER (rejects runaway channels)
+#   - heartbeat peak in 0.8-2.0 Hz must exceed noise (2.5-5.0 Hz) by
+#     QUALITY_HR_SNR_THRESHOLD (confirms skin coupling). FFT recomputed
+#     every QUALITY_HR_RECOMPUTE_S to keep the per-sample cost low.
+QUALITY_WINDOW_S = 5.0
+QUALITY_HR_RECOMPUTE_S = 1.0
+QUALITY_STD_LOWER = 0.005
+QUALITY_CV_UPPER = 0.05
+QUALITY_HR_SNR_THRESHOLD = 3.0
 
 # --- Signal Conditioning ---
 # Causal Butterworth bandpass applied per-channel to O2Hb/HHb after MBLL.

@@ -118,8 +118,9 @@ class ControlSidebar(QWidget):
                 break
 
             label = self.quality_indicators[i]
-            state = "green" if state == "green" else "red"
-            label.setProperty("state", state)
+            # Accept green / yellow / red; anything else falls back to red.
+            normalized = state if state in ("green", "yellow", "red") else "red"
+            label.setProperty("state", normalized)
 
             # Re-apply stylesheet so the [state="..."] selector takes effect
             label.style().unpolish(label)

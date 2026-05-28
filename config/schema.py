@@ -121,6 +121,56 @@ def _validate_filter_order(value: Any) -> int:
     return value
 
 
+@_register("QUALITY_WINDOW_S")
+def _validate_quality_window_s(value: Any) -> float:
+    value = float(value)
+    if not (1.0 <= value <= 60.0):
+        raise SettingsValidationError(
+            f"QUALITY_WINDOW_S must be in [1.0, 60.0], got {value}"
+        )
+    return value
+
+
+@_register("QUALITY_HR_RECOMPUTE_S")
+def _validate_quality_hr_recompute_s(value: Any) -> float:
+    value = float(value)
+    if not (0.1 <= value <= 10.0):
+        raise SettingsValidationError(
+            f"QUALITY_HR_RECOMPUTE_S must be in [0.1, 10.0], got {value}"
+        )
+    return value
+
+
+@_register("QUALITY_STD_LOWER")
+def _validate_quality_std_lower(value: Any) -> float:
+    value = float(value)
+    if not (0.0 < value < 1.0):
+        raise SettingsValidationError(
+            f"QUALITY_STD_LOWER must be in (0.0, 1.0), got {value}"
+        )
+    return value
+
+
+@_register("QUALITY_CV_UPPER")
+def _validate_quality_cv_upper(value: Any) -> float:
+    value = float(value)
+    if not (0.0 < value < 10.0):
+        raise SettingsValidationError(
+            f"QUALITY_CV_UPPER must be in (0.0, 10.0), got {value}"
+        )
+    return value
+
+
+@_register("QUALITY_HR_SNR_THRESHOLD")
+def _validate_quality_hr_snr_threshold(value: Any) -> float:
+    value = float(value)
+    if not (1.0 <= value <= 100.0):
+        raise SettingsValidationError(
+            f"QUALITY_HR_SNR_THRESHOLD must be in [1.0, 100.0], got {value}"
+        )
+    return value
+
+
 def validate(raw: dict) -> dict:
     # Returns a dict of validated overrides. Unknown keys are dropped with no error.
     # Invalid known keys raise SettingsValidationError.

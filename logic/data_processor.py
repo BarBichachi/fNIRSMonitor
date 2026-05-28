@@ -6,6 +6,7 @@ import numpy as np
 import config
 from logic.signal_filter import BandpassFilter
 from logic.load_detector import LoadDetector, ThresholdAsymmetryDetector
+from logic.signal_quality import SignalQualityEvaluator
 from utils.enums import CognitiveState
 
 
@@ -64,6 +65,18 @@ class DataProcessor:
             sample_rate=self.sample_rate
         )
 
+        # Per-channel signal quality: std / CV / heartbeat detection on the
+        # 850 nm OD trace. Pre-window-fill returns red on all channels.
+        self.signal_quality = SignalQualityEvaluator(
+            num_channels=_N_PHYSICAL,
+            sample_rate=self.sample_rate,
+            window_s=float(getattr(config, "QUALITY_WINDOW_S", 5.0)),
+            hr_recompute_s=float(getattr(config, "QUALITY_HR_RECOMPUTE_S", 1.0)),
+            std_threshold=float(getattr(config, "QUALITY_STD_LOWER", 0.005)),
+            cv_threshold=float(getattr(config, "QUALITY_CV_UPPER", 0.05)),
+            hr_snr_threshold=float(getattr(config, "QUALITY_HR_SNR_THRESHOLD", 3.0)),
+        )
+
     # ---------- Lifecycle ----------
 
     def reset(self):
@@ -78,6 +91,7 @@ class DataProcessor:
         if self.filter is not None:
             self.filter.reset()
         self.load_detector.reset()
+        self.signal_quality.reset()
 
     def set_sample_rate(self, hz: float):
         # Updates internal sample-rate-dependent buffer sizes and rebuilds
@@ -106,6 +120,9 @@ class DataProcessor:
 
         # Detector window sizes are sample-rate dependent.
         self.load_detector.set_sample_rate(hz)
+
+        # Signal-quality windows and HR detection are also rate dependent.
+        self.signal_quality.set_sample_rate(hz)
 
     def rebuild_filter(self) -> None:
         # Re-reads config.FILTER_* and instantiates a fresh filter. Phase 6
@@ -238,25 +255,6 @@ class DataProcessor:
         sustained = np.all(recent, axis=1)
         return CognitiveState.LOAD if (np.sum(sustained) >= min_channels) else CognitiveState.NOMINAL
 
-    # ---------- Signal quality ----------
-
-    def _calculate_signal_quality(self, adc_value=None, mapped_od=None):
-        # Phase 5 will replace this with std/CV/heartbeat detection.
-        if adc_value is not None:
-            if adc_value >= config.PLACEHOLDER_HI - config.PLACEHOLDER_EPS:
-                return ["red"] * config.EXPECTED_PHYSICAL_CHANNELS
-            return ["green"] * config.EXPECTED_PHYSICAL_CHANNELS
-
-        if mapped_od is None:
-            return ["red"] * config.EXPECTED_PHYSICAL_CHANNELS
-
-        states = []
-        for i in range(mapped_od.size // 2):
-            w1 = mapped_od[i * 2]
-            w2 = mapped_od[i * 2 + 1]
-            states.append("green" if (np.isfinite(w1) and np.isfinite(w2)) else "red")
-        return states
-
     # ---------- Main entry point ----------
 
     def process_sample_od(self, lsl_sample, alert_rules):
@@ -317,7 +315,11 @@ class DataProcessor:
             o2hb_filt = o2hb_raw
             hhb_filt = hhb_raw
 
-        quality = self._calculate_signal_quality(adc_value=adc_value, mapped_od=mapped_od)
+        # Per-channel signal quality from the 850 nm OD trace (even-indexed
+        # positions in the mapped vector). Phase 5 evaluator replaces the
+        # ADC-only fallback that used to live here.
+        od_850 = mapped_od[::2]
+        quality = self.signal_quality.update(od_850)
 
         # The cognitive-load detector consumes filtered values and current
         # quality. alert_rules (threshold/duration) is from the legacy UI

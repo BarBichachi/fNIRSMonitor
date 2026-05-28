@@ -158,7 +158,11 @@ def load_stylesheet():
     QLabel#SignalDot[state="green"] {
         background-color: #4caf50;
     }
-    
+
+    QLabel#SignalDot[state="yellow"] {
+        background-color: #fbc02d;
+    }
+
     QLabel#SignalDot[state="red"] {
         background-color: #d32f2f;
     }
