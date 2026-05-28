@@ -255,20 +255,23 @@ class AppController(QObject):
         # recording row and skip processing.
         od_finite = (len(od32) == 32) and bool(np.isfinite(od32).all())
         if not od_finite:
-            self._record_row(od32 if len(od32) == 32 else None, None, None, adc, event, dropped=True)
+            self._record_row(
+                od32 if len(od32) == 32 else None, None, None, adc, event,
+                dropped=True, timestamp=timestamp,
+            )
             return
 
         try:
             processed = self.data_processor.process_sample_od(sample, self.alert_rules)
         except Exception as ex:
             print(f"Controller: processing failed: {ex}")
-            self._record_row(od32, None, None, adc, event, dropped=True)
+            self._record_row(od32, None, None, adc, event, dropped=True, timestamp=timestamp)
             return
 
         if processed is None:
             # Placeholder-only sample (typical at stream start). Record raw row,
             # leave calc as sentinel zeros so files stay row-aligned.
-            self._record_row(od32, None, None, adc, event, dropped=False)
+            self._record_row(od32, None, None, adc, event, dropped=False, timestamp=timestamp)
             return
 
         processed["timestamp"] = timestamp
@@ -284,6 +287,7 @@ class AppController(QObject):
             adc,
             event,
             dropped=False,
+            timestamp=timestamp,
         )
 
         current_state = processed.get("alert_state", CognitiveState.NOMINAL)
@@ -303,10 +307,12 @@ class AppController(QObject):
                     self._last_nominal_play_ms = now_ms
             # Other transitions (NOMINAL <-> WARMING_UP / CALIBRATING) stay silent.
 
-    def _record_row(self, od32, o2hb, hhb, adc, event, dropped):
+    def _record_row(self, od32, o2hb, hhb, adc, event, dropped, timestamp=None):
         if not self.recorder.is_recording or self.recorder.is_paused:
             return
-        self.recorder.write(od32, o2hb, hhb, adc=adc, event=event, dropped=dropped)
+        self.recorder.write(
+            od32, o2hb, hhb, adc=adc, event=event, dropped=dropped, timestamp=timestamp,
+        )
 
     # ---------- Recording control ----------
 

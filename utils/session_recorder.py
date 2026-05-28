@@ -3,8 +3,11 @@ import json
 import datetime
 from typing import Optional, List
 
+import numpy as np
+
 import config
 from utils.recording_writer import RecordingWriter
+from utils.snirf_writer import write_snirf
 
 
 # Event marker text used in TSV "Event" column and metadata when special things happen.
@@ -39,6 +42,15 @@ class SessionRecorder:
         # Identity of the stream this recording is tied to. Used by can_resume
         # to refuse resuming into a different source.
         self._stream_source_id: Optional[str] = None
+
+        # In-memory buffer of (timestamp, o2hb_raw, hhb_raw) tuples, populated
+        # alongside the on-disk writes. Written out as SNIRF at stop().
+        # Skipped for sentinel rows (NaN, warming-up) because they carry no
+        # real concentration data.
+        self._snirf_timestamps: List[float] = []
+        self._snirf_o2hb: List[List[float]] = []
+        self._snirf_hhb: List[List[float]] = []
+        self._snirf_metadata: dict = {}
 
     # ---------- Public lifecycle ----------
 
@@ -80,6 +92,18 @@ class SessionRecorder:
 
         self._writer.start(self._raw_file, self._calc_file)
 
+        # Snapshot of what the SNIRF writer will need at stop().
+        self._snirf_timestamps = []
+        self._snirf_o2hb = []
+        self._snirf_hhb = []
+        self._snirf_metadata = {
+            "start_time_iso": self.start_time.isoformat(),
+            "sample_rate_hz": float(sample_rate) if sample_rate else None,
+            "stream": dict(stream_info),
+            "dpf": config_snapshot.get("DPF"),
+            "interoptode_distance_cm": config_snapshot.get("INTEROPTODE_DISTANCE"),
+        }
+
         self.sample_index = 0
         self.is_recording = True
         self.is_paused = False
@@ -93,6 +117,7 @@ class SessionRecorder:
         adc: int = 0,
         event: int = 0,
         dropped: bool = False,
+        timestamp: Optional[float] = None,
     ) -> None:
         # Atomic per-sample write. Both files get a row at the same sample index.
         # If `dropped` is True, both rows carry sentinel values and event="NAN".
@@ -105,6 +130,16 @@ class SessionRecorder:
         raw_row = self._format_raw_row(idx, od32, adc, event, dropped)
         calc_row = self._format_calc_row(idx, o2hb, hhb, event, dropped)
         self._writer.enqueue(raw_row, calc_row)
+
+        # SNIRF buffer collects only real per-channel concentrations. Sentinel
+        # rows (NaN guard, placeholder samples, warmup) carry no meaningful
+        # signal and would distort the resampled SNIRF time series.
+        if not dropped and o2hb is not None and hhb is not None and len(o2hb) == 8 and len(hhb) == 8:
+            ts = float(timestamp) if timestamp is not None else float(idx)
+            self._snirf_timestamps.append(ts)
+            self._snirf_o2hb.append(list(o2hb))
+            self._snirf_hhb.append(list(hhb))
+
         self.sample_index += 1
 
     def pause(self) -> None:
@@ -134,6 +169,7 @@ class SessionRecorder:
     def stop(self) -> None:
         if not self.is_recording:
             return
+        snirf_path = self._write_snirf_safely()
         try:
             self._writer.stop(timeout=5.0)
             if self._raw_file is not None:
@@ -148,6 +184,34 @@ class SessionRecorder:
             self.sample_index = 0
             self.start_time = None
             self._stream_source_id = None
+            self._snirf_timestamps = []
+            self._snirf_o2hb = []
+            self._snirf_hhb = []
+            self._snirf_metadata = {}
+        if snirf_path is not None:
+            print(f"SessionRecorder: SNIRF written to {snirf_path}")
+
+    def _write_snirf_safely(self) -> Optional[str]:
+        # Best-effort SNIRF emission. Never blocks stop() on failure; logs and
+        # moves on. The TSV files and metadata.json are the canonical record.
+        if not self.session_folder or not self._snirf_timestamps:
+            return None
+        try:
+            snirf_path = os.path.join(self.session_folder, "session.snirf")
+            o2 = np.asarray(self._snirf_o2hb, dtype=float)
+            hh = np.asarray(self._snirf_hhb, dtype=float)
+            write_snirf(
+                snirf_path,
+                o2hb=o2,
+                hhb=hh,
+                timestamps=self._snirf_timestamps,
+                sample_rate_hz=self._snirf_metadata.get("sample_rate_hz") or 0.0,
+                metadata=self._snirf_metadata,
+            )
+            return snirf_path
+        except Exception as ex:
+            print(f"SessionRecorder: SNIRF write failed ({ex}); TSV files intact.")
+            return None
 
     def write_notes(self, notes_text: str) -> None:
         # Writes the operator's notes alongside the recording.
@@ -317,6 +381,7 @@ class SessionRecorder:
             "files": {
                 "raw_od": "raw_od.tsv",
                 "calculated": "calculated.tsv",
+                "snirf": "session.snirf",
                 "notes": "notes.txt",
             },
         }
