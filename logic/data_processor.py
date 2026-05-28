@@ -9,12 +9,17 @@ class DataProcessor:
         # Initializes the DataProcessor.
         self._init_mbll_constants()
 
+        # Sample rate tracked as instance state. config.SAMPLE_RATE is only the
+        # pre-connect default used for initial buffer sizing; set_sample_rate
+        # is called once the LSL stream reports its actual nominal rate.
+        self.sample_rate = float(config.SAMPLE_RATE)
+
         # Rolling windows
-        self.quality_buffer_size = int(config.SAMPLE_RATE * 10)  # 10 seconds buffer
+        self.quality_buffer_size = int(self.sample_rate * 10)  # 10 seconds buffer
         self.sample_width = None  # 16 after mapping (8 channels × 2 λ)
         self.raw_buffer = None  # (quality_buffer_size, 16)
 
-        self.alert_history_size = config.ALERT_HISTORY_SECONDS * config.SAMPLE_RATE
+        self.alert_history_size = int(config.ALERT_HISTORY_SECONDS * self.sample_rate)
         self.alert_history = None  # (8, alert_history_size)
         self.od_indices = None  # Maps OxySoft OD vector (32) -> 8ch×2λ (16)
 
@@ -91,7 +96,7 @@ class DataProcessor:
         self.alert_history[:, self.alert_ptr] = is_above
         self.alert_ptr = (self.alert_ptr + 1) % self.alert_history.shape[1]
 
-        need = int(duration_s * config.SAMPLE_RATE)
+        need = int(duration_s * self.sample_rate)
         need = max(1, min(need, self.alert_history.shape[1]))
 
         end = self.alert_ptr
@@ -107,7 +112,7 @@ class DataProcessor:
         if hz is None:
             return
 
-        config.SAMPLE_RATE = hz  # keeps rest of app consistent
+        self.sample_rate = hz
         self.quality_buffer_size = int(hz * 10)
         self.alert_history_size = int(config.ALERT_HISTORY_SECONDS * hz)
 
