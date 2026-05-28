@@ -238,16 +238,32 @@ class AppController(QObject):
 
         processed["timestamp"] = timestamp
         self.processed_data_ready.emit(processed)
-        self._record_row(od32, processed.get("O2Hb"), processed.get("HHb"), adc, event, dropped=False)
+
+        # Recorded values are the RAW post-MBLL Hb (unfiltered). The filter is
+        # a display/alert artifact; analysts can apply their own filter offline
+        # over the recorded raw values.
+        self._record_row(
+            od32,
+            processed.get("O2Hb_raw"),
+            processed.get("HHb_raw"),
+            adc,
+            event,
+            dropped=False,
+        )
 
         current_state = processed.get("alert_state", CognitiveState.NOMINAL)
         if current_state != self.last_alert_state:
+            prev_state = self.last_alert_state
             self.last_alert_state = current_state
             self.alert_state_changed.emit(current_state)
             if current_state == CognitiveState.LOAD:
                 self.sound_player.play("alert")
-            else:
+            elif (
+                prev_state == CognitiveState.LOAD
+                and current_state == CognitiveState.NOMINAL
+            ):
                 self.sound_player.play("nominal")
+            # Other transitions (NOMINAL <-> WARMING_UP / CALIBRATING) stay silent.
 
     def _record_row(self, od32, o2hb, hhb, adc, event, dropped):
         if not self.recorder.is_recording or self.recorder.is_paused:
@@ -315,6 +331,12 @@ class AppController(QObject):
 
     def save_recording_notes(self, notes_text: str):
         self.recorder.write_notes(notes_text)
+
+    def recompute_baseline_from_window(self) -> bool:
+        # Proxied by the future "Set Baseline" UI action (Phase 6). Tells the
+        # DataProcessor to re-zero its baseline to the mean of the most-recent
+        # window of OD samples.
+        return self.data_processor.recompute_baseline_from_window()
 
     # ---------- Helpers ----------
 

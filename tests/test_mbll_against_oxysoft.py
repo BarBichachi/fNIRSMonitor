@@ -113,8 +113,15 @@ def _replay_raw_through_pipeline(raw_array: np.ndarray) -> np.ndarray:
         if processed is None:
             # Placeholder-only sample (all 4.81625); skip.
             continue
-        o2_rows.append(processed["O2Hb"])
-        hh_rows.append(processed["HHb"])
+        # Compare the RAW (unfiltered) post-MBLL values: the filter is a
+        # display/alert layer, the replay validates the MBLL math itself.
+        o2_raw = processed.get("O2Hb_raw")
+        hh_raw = processed.get("HHb_raw")
+        if o2_raw is None or hh_raw is None:
+            # WARMING_UP sample (window-baseline mode still accumulating).
+            continue
+        o2_rows.append(o2_raw)
+        hh_rows.append(hh_raw)
 
     o2 = np.array(o2_rows, dtype=float)
     hh = np.array(hh_rows, dtype=float)

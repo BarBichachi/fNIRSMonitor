@@ -70,6 +70,57 @@ def _validate_wavelength_order(value: Any) -> tuple:
     return tuple(str(v) for v in value)
 
 
+@_register("BASELINE_MODE")
+def _validate_baseline_mode(value: Any) -> str:
+    value = str(value)
+    valid = ("single_sample", "window")
+    if value not in valid:
+        raise SettingsValidationError(
+            f"BASELINE_MODE must be one of {valid}, got {value!r}"
+        )
+    return value
+
+
+@_register("BASELINE_WINDOW_S")
+def _validate_baseline_window_s(value: Any) -> float:
+    value = float(value)
+    if not (1.0 <= value <= 120.0):
+        raise SettingsValidationError(
+            f"BASELINE_WINDOW_S must be in [1.0, 120.0], got {value}"
+        )
+    return value
+
+
+@_register("FILTER_HIGHPASS_HZ")
+def _validate_filter_highpass(value: Any) -> float:
+    value = float(value)
+    if not (0.0 < value < 5.0):
+        raise SettingsValidationError(
+            f"FILTER_HIGHPASS_HZ must be in (0, 5), got {value}"
+        )
+    return value
+
+
+@_register("FILTER_LOWPASS_HZ")
+def _validate_filter_lowpass(value: Any) -> float:
+    value = float(value)
+    if not (0.05 <= value <= 50.0):
+        raise SettingsValidationError(
+            f"FILTER_LOWPASS_HZ must be in [0.05, 50.0], got {value}"
+        )
+    return value
+
+
+@_register("FILTER_ORDER")
+def _validate_filter_order(value: Any) -> int:
+    value = int(value)
+    if not (1 <= value <= 10):
+        raise SettingsValidationError(
+            f"FILTER_ORDER must be in [1, 10], got {value}"
+        )
+    return value
+
+
 def validate(raw: dict) -> dict:
     # Returns a dict of validated overrides. Unknown keys are dropped with no error.
     # Invalid known keys raise SettingsValidationError.

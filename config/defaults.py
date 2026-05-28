@@ -68,3 +68,23 @@ EXTINCTION_COEFFICIENTS = {
 
 # --- Signal Quality (stddev on wavelength-1 trace) ---
 QUALITY_STD_LOWER = 0.005  # std below this -> 'red', else 'green'
+
+# --- Signal Conditioning ---
+# Causal Butterworth bandpass applied per-channel to O2Hb/HHb after MBLL.
+# 0.01 Hz highpass removes slow drift; 0.5 Hz lowpass removes Mayer waves
+# (~0.1 Hz peak) and heart rate (~1 Hz). Standard for cognitive fNIRS.
+# Filtered values feed display and alerts; raw post-MBLL values are recorded
+# so analysts can re-filter offline with their own pipeline.
+FILTER_HIGHPASS_HZ = 0.01
+FILTER_LOWPASS_HZ = 0.5
+FILTER_ORDER = 4
+
+# --- Baseline Configuration ---
+# "single_sample" matches OxySoft's default: the first non-placeholder OD
+# sample becomes the baseline. Cheap and consistent with OxySoft NOTRAW.
+# "window" buffers BASELINE_WINDOW_S of OD before emitting any deltas,
+# trading initial latency for lower baseline noise. Research-grade option.
+# A manual "Set Baseline" action recomputes baseline from the last
+# BASELINE_WINDOW_S of buffered OD regardless of mode.
+BASELINE_MODE = "single_sample"
+BASELINE_WINDOW_S = 10
