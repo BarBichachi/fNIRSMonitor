@@ -1,5 +1,6 @@
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QPushButton, QLineEdit, QCheckBox
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QPushButton, QLineEdit, QCheckBox, QToolTip
+from PySide6.QtCore import Qt, QRegularExpression
+from PySide6.QtGui import QRegularExpressionValidator
 
 
 class ConnectionBar(QWidget):
@@ -68,6 +69,11 @@ class ConnectionBar(QWidget):
         layout.addWidget(QLabel("File name:"))
         self.filename_input = QLineEdit("session_01")
         self.filename_input.setFixedWidth(140)
+        # Block characters that are illegal in Windows file/folder names and
+        # explain the rejection with a tooltip instead of silently swallowing.
+        illegal = QRegularExpression(r'[^<>:"/\\|?*\x00-\x1f]*')
+        self.filename_input.setValidator(QRegularExpressionValidator(illegal))
+        self.filename_input.inputRejected.connect(self._on_filename_input_rejected)
         layout.addWidget(self.filename_input)
 
         self.record_button = QPushButton("Record")
@@ -92,7 +98,12 @@ class ConnectionBar(QWidget):
         self.status_indicator.style().unpolish(self.status_indicator)
         self.status_indicator.style().polish(self.status_indicator)
 
-        self.record_button.setEnabled(connected)
-        self.auto_record_checkbox.setEnabled(True)  # can be changed even when disconnected
-        if not connected:
-            self.record_button.setChecked(False)
+    def _on_filename_input_rejected(self):
+        # Fired when the validator blocks an illegal character. Briefly explain
+        # why so the user is never left wondering why nothing typed.
+        pos = self.filename_input.mapToGlobal(self.filename_input.rect().bottomLeft())
+        QToolTip.showText(
+            pos,
+            'That character is not allowed in a recording name.',
+            self.filename_input,
+        )

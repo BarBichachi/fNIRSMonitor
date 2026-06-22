@@ -56,3 +56,17 @@ def get_next_index_for_prefix(recordings_root: str, prefix: str) -> int:
 def format_name(prefix: str, idx: int) -> str:
     # Formats the name as "SleepExperiment_01"
     return f"{prefix}_{idx:02d}"
+
+
+# Characters Windows forbids in file/folder names, plus ASCII control chars.
+ILLEGAL_NAME_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_session_name(name: str, fallback: str = "session") -> str:
+    # Strips characters that are illegal in Windows file/folder names so a
+    # user-typed recording name can never crash folder creation. Also trims
+    # trailing dots and spaces (illegal as a Windows name ending) and falls
+    # back to a default if nothing usable remains.
+    cleaned = ILLEGAL_NAME_PATTERN.sub("", name or "")
+    cleaned = cleaned.strip().rstrip(". ")
+    return cleaned if cleaned else fallback

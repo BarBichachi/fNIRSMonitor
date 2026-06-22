@@ -9,6 +9,7 @@ import numpy as np
 import config
 from utils.recording_writer import RecordingWriter
 from utils.snirf_writer import write_snirf
+from utils.session_naming import sanitize_session_name
 
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,10 @@ class SessionRecorder:
 
         # Each recording lives in its own folder so raw_od.tsv, calculated.tsv,
         # metadata.json, and (optional) notes.txt stay together as one atomic unit.
-        session_folder_name = f"{time_str}_{session_name}"
+        # Sanitize at the source: a user-typed name with Windows-illegal
+        # characters must never reach os.makedirs and crash the app.
+        safe_name = sanitize_session_name(session_name)
+        session_folder_name = f"{time_str}_{safe_name}"
         session_folder = self._get_safe_dir(os.path.join(date_folder, session_folder_name))
         os.makedirs(session_folder, exist_ok=True)
 

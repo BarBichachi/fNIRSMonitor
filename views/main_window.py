@@ -44,6 +44,11 @@ class MainWindow(QMainWindow):
 
         self.record_start_ms = None
 
+        # Guards programmatic record-button state changes (driven by the
+        # controller's recording_state_changed signal) from re-entering the
+        # user-intent start/stop logic in _on_record_toggled.
+        self._suppress_record_toggle = False
+
         self._init_ui()
         self._init_plot_timer()
         self._init_record_timer()
@@ -127,6 +132,8 @@ class MainWindow(QMainWindow):
         self.controller.processed_data_ready.connect(self._on_processed_data)
         self.controller.alert_state_changed.connect(self.alert_sidebar.update_state_indicator)
         self.controller.sample_rate_info_changed.connect(self._on_sample_rate_info_changed)
+        self.controller.recording_state_changed.connect(self._on_recording_state_changed)
+        self.controller.connection_error.connect(self._on_connection_error)
 
         # Connect Alert Rule UI to Controller
         self.alert_sidebar.threshold_spinbox.valueChanged.connect(self._update_controller_rules)
@@ -197,24 +204,23 @@ class MainWindow(QMainWindow):
             self.connection_bar.set_status_connected(True)
             self.connection_bar.refresh_button.setEnabled(False)
             self._set_analysis_controls_enabled(True)
+            self.connection_bar.record_button.setEnabled(True)
             self.controller.set_auto_record_on_connect(self.connection_bar.auto_record_checkbox.isChecked(),
                 session_name=self.connection_bar.filename_input.text().strip())
-
-            if self.connection_bar.auto_record_checkbox.isChecked():
-                self.connection_bar.record_button.setChecked(True)
 
             self.plot_widget.reset()
             self.plot_update_timer.start()
 
         else:
             self._set_analysis_controls_enabled(False)
-            if self.connection_bar.record_button.isChecked():
-                self.connection_bar.record_button.setChecked(False)
-            self._stop_record_timer()
-            self._stop_record_flash()
             self.connection_bar.connect_button.setText("Connect")
             self.connection_bar.set_status_connected(False)
             self.connection_bar.refresh_button.setEnabled(True)
+            # Recording lifecycle is decoupled from connection: a transient
+            # drop pauses (not stops) the recording, so leave the record button
+            # enabled while a recording is still open. Disable only when there
+            # is no recording to act on.
+            self.connection_bar.record_button.setEnabled(self.controller.recorder.is_recording)
             self.plot_update_timer.stop()
             self.plot_widget.reset()
             self.control_sidebar.reset_signals_quality_indicators()
@@ -286,43 +292,84 @@ class MainWindow(QMainWindow):
         return int(time.monotonic() * 1000)
 
     def _on_record_toggled(self, checked: bool):
-        # Starts/stops recording via controller based on Record toggle
+        # User intent only. Programmatic checked-state changes (driven by the
+        # controller's recording_state_changed signal) are suppressed so they
+        # never re-enter this start/stop logic.
+        if self._suppress_record_toggle:
+            return
+
         if checked:
             self._normalize_session_name_if_needed()
             session_name = self.connection_bar.filename_input.text().strip()
             if not session_name:
-                self.connection_bar.record_button.setChecked(False)
+                self._set_record_checked(False)
                 return
 
             self.controller.start_recording(session_name)
 
-            if self.controller.recorder.is_recording:
-                self.connection_bar.record_button.setText("Stop Recording")
-                self.connection_bar.filename_input.setEnabled(False)
-                self._start_record_timer()
-                self._start_record_flash()
-            else:
-                self.connection_bar.record_button.setChecked(False)
-                self.connection_bar.record_button.setText("Record")
-                self.connection_bar.filename_input.setEnabled(True)
-                self._stop_record_timer()
-                self._stop_record_flash()
+            # If the start did not take (e.g. not connected), revert the button.
+            # On success, visuals are applied by _on_recording_state_changed.
+            if not self.controller.recorder.is_recording:
+                self._set_record_checked(False)
 
         else:
+            # User clicked Stop. Capture notes first (the folder is still open),
+            # then stop. Visuals are applied when the controller emits "stopped".
+            notes = get_recording_notes(self)
+            if notes:
+                self.controller.save_recording_notes(notes)
+            self.controller.stop_recording()
+
+    def _set_record_checked(self, value: bool):
+        # Sets the record button checked state without re-triggering the
+        # start/stop logic in _on_record_toggled.
+        self._suppress_record_toggle = True
+        self.connection_bar.record_button.setChecked(value)
+        self._suppress_record_toggle = False
+
+    def _on_recording_state_changed(self, state: str):
+        # Single source of truth for the record button's visuals, decoupled
+        # from connection state. A transient stream drop pauses the recording
+        # (files stay open) rather than tearing the UI down.
+        if state in ("started", "resumed"):
+            self._set_record_checked(True)
+            self.connection_bar.record_button.setEnabled(True)
+            self.connection_bar.record_button.setText("Stop Recording")
+            self.connection_bar.filename_input.setEnabled(False)
+            # Only (re)start the elapsed timer on a fresh start; a resume keeps
+            # the original timer running across the gap.
+            if state == "started":
+                self._start_record_timer()
+            self._start_record_flash()
+
+        elif state == "paused":
+            # Files are still open; keep the recording look. Nothing to tear down.
+            pass
+
+        elif state == "stopped":
+            self._set_record_checked(False)
             self.connection_bar.record_button.setText("Record")
             self.connection_bar.filename_input.setEnabled(True)
             self._stop_record_timer()
             self._stop_record_flash()
-
-            notes = get_recording_notes(self)
-            if notes:
-                self.controller.save_recording_notes(notes)
-
-            self.controller.stop_recording()
+            self.connection_bar.record_button.setEnabled(self.controller.is_connected)
 
             if self.connection_bar.auto_naming_checkbox.isChecked():
                 current = self.connection_bar.filename_input.text().strip()
                 self.connection_bar.filename_input.setText(self.controller.get_next_session_name(current))
+
+    def _on_connection_error(self, reason: str):
+        # A stream was found but rejected by the metadata contract. Tell the
+        # operator why and reset the connect button so they can retry.
+        self.connection_bar.connect_button.setEnabled(True)
+        self.connection_bar.connect_button.setText("Connect")
+        self.connection_bar.search_indicator_label.hide()
+        QMessageBox.warning(
+            self,
+            "Stream rejected",
+            f"The selected stream was rejected:\n\n{reason}\n\n"
+            "Check that OxySoft is sending raw Optical Density (all 32 channels).",
+        )
 
     def _on_auto_record_toggled(self, checked: bool):
         # Arms/disarms auto-record on connect

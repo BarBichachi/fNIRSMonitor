@@ -40,6 +40,11 @@ class AppController(QObject):
     # Emitted when a stream was found but failed the metadata contract.
     # Phase 6 will hook a modal dialog to this; for now the UI just logs.
     connection_error = Signal(str)
+    # Recording lifecycle, decoupled from connection state. One of:
+    # "started", "paused", "resumed", "stopped". The UI drives the record
+    # button visuals from this signal alone, so a transient stream drop
+    # (which pauses, not stops) never tears the recording down.
+    recording_state_changed = Signal(str)
 
     # Signals to safely trigger actions on the background thread.
     find_streams_requested = Signal()
@@ -158,6 +163,7 @@ class AppController(QObject):
             self.recorder.resume(gap_ms)
             self._disconnect_time_ms = None
             self.connection_status.emit(True)
+            self.recording_state_changed.emit("resumed")
             return
 
         # Fresh session: reset processor state and possibly auto-start recording.
@@ -189,6 +195,7 @@ class AppController(QObject):
         # Watchdog / network drop. Hold the recording open for a tolerance window.
         if was_connected and self.recorder.is_recording and not self.recorder.is_paused:
             self.recorder.pause()
+            self.recording_state_changed.emit("paused")
             self._disconnect_time_ms = self._now_ms()
             self._pause_timer.start()
             # Begin retrying connection to the same source.
@@ -353,9 +360,14 @@ class AppController(QObject):
             "CHANNEL_NAMES": getattr(config, "CHANNEL_NAMES", None),
         }
         self.recorder.start(session_name, stream_info, rate, cfg_snapshot)
+        if self.recorder.is_recording:
+            self.recording_state_changed.emit("started")
 
     def stop_recording(self):
+        was_recording = self.recorder.is_recording
         self.recorder.stop()
+        if was_recording:
+            self.recording_state_changed.emit("stopped")
 
     def open_today_recordings_folder(self):
         folder = get_today_recordings_folder(self.recorder.recordings_root)
