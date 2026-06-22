@@ -258,7 +258,7 @@ Separate session, not blocking this work:
 - Pick best, set as default. Document choice.
 
 ## Outstanding reminders for Bar
-- After Phase 2 ships: confirm whether coefficients matched OxySoft's NOTRAW (if test passed) or were swapped to Cope & Delpy (if not). Either way document.
+- ~~After Phase 2 ships: confirm whether coefficients matched OxySoft's NOTRAW (if test passed) or were swapped to Cope & Delpy (if not). Either way document.~~ **Resolved (Phase 2).** Replay test initially showed ~2.5x scale error with the previous set; diagnostic (`scripts/diagnose_mbll_replay.py`) compared Cope / Matcher / Wray and **Matcher et al. 1995** won. Replay now passes (RMSE 0.048 uM, max abs error 0.197 uM). Residual ~10% uniform scale gap vs OxySoft NOTRAW is expected (OxySoft's internal coefficient table is not public) and irrelevant for relative deltaHb dynamics. Documented in `config/defaults.py`.
 - After Phase 8: design and run the labeled cognitive task data collection.
 
 ---

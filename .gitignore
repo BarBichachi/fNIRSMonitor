@@ -2,3 +2,4 @@
 /Recordings/
 __pycache__/
 .pytest_cache/
+pysnirf2.log
