@@ -80,12 +80,11 @@ class PlotWidget(QWidget):
             plot_widget.getAxis('bottom').setTextPen(axis_color)
             plot_widget.getAxis('left').setTextPen(axis_color)
 
-            # Link Y-axes
+            # Each plot owns its own Y range (no cross-plot linking), so a
+            # large-amplitude channel can't force every other plot's scale.
             if self.first_plot is None:
                 self.first_plot = plot_widget
-                self.first_plot.getViewBox().disableAutoRange()
-            else:
-                plot_widget.setYLink(self.first_plot)
+            plot_widget.getViewBox().disableAutoRange()
 
             # --- Curves: O2Hb red, HHb blued ---------------------------------
             o2hb_curve = plot_widget.plot(
@@ -114,8 +113,9 @@ class PlotWidget(QWidget):
         self.data['O2Hb'] = np.zeros((len(config.CHANNEL_NAMES), new_len), dtype=float)
         self.data['HHb'] = np.zeros((len(config.CHANNEL_NAMES), new_len), dtype=float)
 
-        if self.first_plot:
-            self.first_plot.setXRange(self.x_axis[0], self.x_axis[-1])
+        # X-axes aren't linked, so update every plot's range explicitly.
+        for plot_widget in self.plots.values():
+            plot_widget.setXRange(self.x_axis[0], self.x_axis[-1])
 
     def push_sample(self, processed_data):
         # Writes data to the ring buffer at the current pointer.
@@ -133,16 +133,19 @@ class PlotWidget(QWidget):
         self._y_autorange_counter += 1
         do_autorange = (self._y_autorange_counter % self._y_autorange_every) == 0
 
-        if do_autorange and self.first_plot:
-            global_min = min(np.min(o2_ordered), np.min(hh_ordered))
-            global_max = max(np.max(o2_ordered), np.max(hh_ordered))
-            data_range = (global_max - global_min)
-            padding = max(data_range * 0.1, 0.001)
-            self.first_plot.setYRange(global_min - padding, global_max + padding)
-
         for i, name in enumerate(config.CHANNEL_NAMES):
-            self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=o2_ordered[i, :])
-            self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=hh_ordered[i, :])
+            o2_row = o2_ordered[i, :]
+            hh_row = hh_ordered[i, :]
+            self.plot_curves[name]['O2Hb'].setData(x=self.x_axis, y=o2_row)
+            self.plot_curves[name]['HHb'].setData(x=self.x_axis, y=hh_row)
+
+            # Auto-range each plot independently against its own channel data.
+            if do_autorange:
+                ch_min = min(np.min(o2_row), np.min(hh_row))
+                ch_max = max(np.max(o2_row), np.max(hh_row))
+                data_range = (ch_max - ch_min)
+                padding = max(data_range * 0.1, 0.001)
+                self.plots[name].setYRange(ch_min - padding, ch_max + padding)
 
     def reset(self):
         # Clear all data and repaint as a flat baseline

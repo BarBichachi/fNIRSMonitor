@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(config.APP_NAME)
-        self.setGeometry(100, 100, config.WINDOW_WIDTH, config.WINDOW_HEIGHT)
+        self._apply_initial_geometry()
         self.setStyleSheet(load_stylesheet())
 
         # Create the controller that will manage all logic
@@ -66,6 +66,22 @@ class MainWindow(QMainWindow):
 
         # Trigger the initial stream search on startup
         self._handle_refresh_clicked()
+
+    def _apply_initial_geometry(self):
+        # Size the window to the configured dimensions but never larger than the
+        # available screen, so laptops with small displays don't trigger Qt's
+        # "Unable to set geometry" warning and lay out cleanly when maximized.
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry()
+
+        width = min(config.WINDOW_WIDTH, available.width())
+        height = min(config.WINDOW_HEIGHT, available.height())
+
+        # Center within the available screen area.
+        x = available.x() + (available.width() - width) // 2
+        y = available.y() + (available.height() - height) // 2
+
+        self.setGeometry(x, y, width, height)
 
     def _init_ui(self):
         # Initializes the main UI layout by assembling the widget components.
